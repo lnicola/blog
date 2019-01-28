@@ -5,3 +5,8 @@ before_install:
 script:
     - ls -al
     - ./zola build
+deploy:
+    provider: firebase
+    project: blog-6dfa0
+    token:
+        secure: "GAGZ1NOqWXp4aQND4HBDbSVBTbp2Do0m87R7CRgV48xwXBXk/fpAulgoQ0XA+nW6glf0ix7vJbFb5yzgIjNlo4s0Ih/ku8/ufqIBtnQIjRq3qnfJe3LmKgY/C59YKtE6N4t2LsvlDEAjUW0h48woPnPfVdYwbgiqaZtKW4KewjLiaKWKpOMqG0jkflYS4+FofVjjaYraTvqDFLVws6AacbT3Mg/phM8HDuiCE1k4LHlu0bckAI4/o0gtcxEKMwSuvl0BR+O8UYxymdx0fT6aRERsIezv4oYKBME2bbkcylnJ5+2M26P0P7mj5GTeXHhmGkUqiqXOym0yCXlipJIAk7w8Sj8GupUtKbj+A8zzKQSVfk68wHTxo+RJmnO8ZKsaeuPVbR7mO7AMTOe+Q+lNwBRJ3cAv+7n21TLnKkcQ1EPTTDYbsxYvrNAUvB2Jxpc5xkTjBC1ULLI4YktAjBnsP5X2PRbFinopQKdJUeh4x65qQywZ1UIZ3EFQ4PsprEM6y0GoH4iUHylfLIuP1SS74x/rfeYkvyMYy9oAivwDD4TcxPJqUlaw9lPICkL0OxYgbr2jaR+k1wuTj6kZKlWE7a6XBgAyAHZ6K+a3MdeYH30zEn2Kq1i05RKMweYwfcVO37AWdIYnoD0qZ/d9u+F7js/rKFfeps1hbPCkqJfltQM="
