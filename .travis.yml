@@ -9,4 +9,4 @@ script:
     - ./zola build
     - rm zola
 after_success:
-    - firebase deploy
+    - firebase deploy -P blog-6dfa0
