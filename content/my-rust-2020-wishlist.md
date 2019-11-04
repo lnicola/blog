@@ -1,5 +1,5 @@
 +++
-title = "My Rust 2020 wish list"
+title = "My Rust 2020 wish list: playing nice"
 date = 2019-11-03
 +++
 This year I decided to jot down some thoughts for the [Rust 2020 call for blog posts](https://blog.rust-lang.org/2019/10/29/A-call-for-blogs-2020.html).
@@ -126,10 +126,10 @@ I think I would like to see a rough and very high-level list or board of things 
 
 There is a very deep rift in the community in the shape of async run-times and related projects. Much has been said about the two major implementations, yet to me it seems more and more that they are more similar than different. I think it's apparent here that the reasons for it are more social than technical. Time will probably make them converge more and more on the technical side, but the current situation is not ideal.
 
-There is much to say here about various aspects, from naming to timing, and to the overall contributions made by the now-disbanded Async-WG (nb. `async-std` is not an Async-WG project, even though the same people are involved). But these were already discussed a lot. Perhaps it is more important to ask:
+There is much to say here about various aspects, from naming to timing, and generally the reasoning behind the projects started by the now-disbanded Async-WG (nb. `async-std` is not an Async-WG project, even though the same people are involved). But these were already discussed a lot in different places, and I don't want to add anything here. Perhaps it is more important to ask:
 
 1. is the _status quo_ of two very similar, but slightly incompatible run-times in the best interest of the users?
-2. if yes, how do the two projects position themselves, which users are they catering to? It's worth mentioning here that the goals of the two projects seem quite similar, even if only one of them advertises itself as "like `std`, but async". The other project seems to have the same goal, but didn't insist on advertising itself as such. It would probably be in the spirit of fair play to drop that tagline, which seems misleading at best.
+2. if yes, how do the two projects position themselves, which users are they catering to? It's worth mentioning here that the goals of the two projects are quite similar according to their developers &mdash; offering async versions of the functionality present in the standard library. One of the two projects actually uses this as its tagline, which tends to confuse beginners.
 3. if no, what can be done to close this rift? The answer here is clearly not technical, and it will require giving up some control and some ego, and actively trying to work with the other side. This is hard to do, harder than any technical challenge that the two projects might encounter.
 
 I also want to say that there is a certain level of misinformation and FUD floating around, most likely unintentional. We should work on that, because it can get toxic in the long run. In addition, I was very disappointed to see a comment on a well-intended [pull request](https://github.com/withoutboats/romio/pull/106) that was quite aggressive towards the competing project. It's now deleted, but it went like:
