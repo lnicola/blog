@@ -80,7 +80,7 @@ This is something that comes up from time to time. I think we should try to iden
 
 Relevant discussion: <https://internals.rust-lang.org/t/calculating-which-3rd-party-crates-are-good-candidates-for-std-inclusion-via-left-pad-index/11129>
 
-## Compiling system libraries
+## `std`-aware `cargo`
 
 This is quite specific and is already requested, but I'd like to see `cargo` be able to build `libstd` instead of using a bundled version. This would be very helpful for embedded projects, and will improve code generation in some setups like projects that use abort on panic.
 
