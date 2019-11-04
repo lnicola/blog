@@ -36,6 +36,14 @@ Visual Studio also has incremental linking. Can we get something like that?
 
 Relevant issue: <https://github.com/rust-lang/rust/issues/39915>.
 
+## Compile cache
+
+A nice, relatively easy win is to have a global build-cache. Supposedly, this is hard to implement, because it needs to handle different versions of compiler, crates, `cargo` features, conditional compilation and targets. But `cargo` is already great at keeping track of those within a single project, so I don't buy this argument.
+
+There's the `sccache` project that tries to offer this, but in my experience it's a bit unreliable about tracking the compiler version, so I often need to nuke its cache manually after upgrades. Somewhat worse, it doesn't handle anything with build scripts or procedural macros (that is, a lot of slow to compile crates), presumably because it needs to support distributed compilation. I think a local-only mode for `sccache` would be a huge win.
+
+There's also the disk space issue. With incremental compilation, build files tend to take a huge amount of space. With a global cache, the external crates could be stored only once, which would make a lot of people with 120 GB SSDs happy.
+
 ## System integration
 
 Right now, `cargo` stores the crates.io registry under `~/.cargo/registry`, and maybe also under `~/.cargo/git`. I'm not sure myself. I'd very much like if `cargo` was a better team player here. There are clear-cut guidelines for storing configuration and cached data, and `cargo` is not following them. This makes it painful for people using backup programs, roaming user profiles, or who just want to free up some disk space.
@@ -52,11 +60,19 @@ Notable here is the strong opposition from someone closely associated to the lan
 
 Mildly relevant: <https://github.com/rust-lang/rfcs/pull/2789>.
 
+## Formal grammar
+
+There is a working group for this, but it still seems to come up relatively often. I think having a formal grammar and a parser crate that lives outside of `rustc` would make a lot of people feel more at ease with regards to the viability of another compiler implementation. Personally, I don't think we _need_ another implementation at this point, but a grammar and parser would still be useful regardless of that.
+
 ## Language features
 
 I hope there will be progress on features like `impl Trait`, `async fn` in traits, const generics, streams, generators and perhaps specialization. Probably everyone wants these, so there's not much to say.
 
 Maybe the next year the `chalk` and `polonius` work will finally bear some fruit, and perhaps there will be some resolution to the parallel compiler saga. Speaking of which, can `salsa` replace or supplement the `rustc` query system?
+
+## Sanitizers
+
+Using the LLVM sanitizers seems to be a bit of a mystery. People talk about this, but nobody seems to be doing it. Together with `miri`, sanitizers would be a powerful tool for dynamic checking of Rust programs.
 
 ## Bringing crates into `std`
 
@@ -79,6 +95,16 @@ Relevant issue: <https://github.com/rust-lang/cargo/issues/4309>
 ## Paper cuts
 
 I'm sure that everybody has some paper cuts they would like to see fixed. The worst I can think of right now are probably the weird interaction between `cargo` workspaces and features, and `html_root_url` which so many people forget to update that it's common to add a reminder about it in the manifest.
+
+## A principled stance on `unsafe`
+
+Right now we have two vocal minorities. One, generally made of newcomers to the language, says that unsafe code is bad (and even that, by extension, the whole language is bad and useless because `libstd` uses `unsafe`). The other, usually developers experienced in other languages, carelessly uses `unsafe` wherever the opportunity arises, not caring about the fact that their code is unsound.
+
+None of the two groups are right, and that should be obvious. A more subtle issue is that an overreaction to former group could normalize the idea that `unsafe` is perfectly fine if you say you know what you're doing, thus validating the beliefs of the latter.
+
+## crates.io and RustSec integration
+
+The [RustSec](https://rustsec.org/) project has aggregated quite a few of vulnerabilities, some of them still unfixed. It would be really cool if crates.io could query the RustSec database and display which crate versions are vulnerable or not.
 
 ## The future of RLS
 
