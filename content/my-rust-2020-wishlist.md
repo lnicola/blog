@@ -8,6 +8,8 @@ The major caveat here is that I'm just a language enthusiast. I'm not using Rust
 
 I think the general theme here will be integration or "playing well", on different levels. A lot of these here are not language changes, and most of them already exist in some form. Probably none of them are new ideas.
 
+I'm not going to assign priorities: priorities change, new issues are discovered, and contributors work on what they're interested in, not necessarily roadmap items. And some of the aspects I mention are requests for the community not the project members.
+
 ## Debugging experience
 
 Rust got a head start here because of its similarity to C and C++, and being able to use the debugging symbols implementation from LLVM. With a bit of patience and skill you can make `gdb` or `lldb` work decently enough with Rust programs. I think, however, that we could and should do better. We shouldn't aim to match the `gdb` experience for C++ programs, but rather for C# or Java-like integration.
@@ -121,8 +123,8 @@ I believe that when `rust-analyzer` got started, there were some quite strong di
 It's probably well-understood that the RFC process has some limitations that make it scale poorly. Perhaps a better approach here, which I'm sure was proposed before, would be to:
 
 - move most of the RFC discussions to separate repositories, using issues and pull requests
-- keep a long-running summary of these discussion with pros and cons in something like a HackMD document
-- try to prevent team members from delaying RFCs by months or years with concerns or other things that never happen
+- keep a long-running summary of these discussion with pros and cons in something like a HackMD document instead of GitHub comments
+- try to put some contingency measures in place in case some team members are unavailable or otherwise cannot vote on an RFC
 
 ## The communication platform
 
@@ -152,7 +154,7 @@ I think I would like to see a rough and very high-level list or board of things 
 
 There is a very deep rift in the community in the shape of async run-times and related projects. Much has been said about the two major implementations, yet to me it seems more and more that they are more similar than different. I think it's apparent here that the reasons for it are more social than technical. Time will probably make them converge more and more on the technical side, but the current situation is not ideal.
 
-There is much to say here about various aspects, from naming to timing, and generally the reasoning behind the projects started by the now-disbanded Async-WG (nb. `async-std` is not an Async-WG project, even though the same people are involved). But these were already discussed a lot in different places, and I don't want to add anything here. Perhaps it is more important to ask:
+There is much to say here about various aspects, from naming to timing, and generally the reasoning behind the projects started by the now-disbanded Async Ecosystem WG (nb. `async-std` was not an Async Ecosystem WG project, even though the same people are involved). But these were already discussed a lot in different places, and I don't want to add anything here. Perhaps it is more important to ask:
 
 1. is the _status quo_ of two very similar, but slightly incompatible run-times in the best interest of the users?
 2. if yes, how do the two projects position themselves, which users are they catering to? It's worth mentioning here that the goals of the two projects are quite similar according to their developers &mdash; offering async versions of the functionality present in the standard library. One of the two projects actually uses this as its tagline, which tends to confuse beginners.
@@ -165,6 +167,8 @@ I also want to say that there is a certain level of misinformation and FUD float
 (although initially it said "obvious trolling" in Russian, or something similar)
 
 That's an awful way to speak about the competing project, which actually spawned both `romio` and the one you're working on. And I don't think it's in the best interest of `async-std` if its developers take this kind of position.
+
+**Update:** unsurprisingly, this boiled over pretty bad.
 
 ## Transparency
 
