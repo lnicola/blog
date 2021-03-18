@@ -19,6 +19,5 @@ theme = "hyde"
 [extra]
 hyde_links = [
     { url = "/", name = "Home" },
-    { url = "/content/privacy/", name = "Privacy" },
     { url = "/content/acknowledgements/", name = "Acknowledgements" },
 ]
