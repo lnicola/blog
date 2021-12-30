@@ -336,7 +336,7 @@ The Rust compiler produces what's called LLVM IR as output. It's similar to, but
 
 To figure that out, I used the Playground to see my function's IR:
 
-```text
+```
 ; Function Attrs: norecurse nounwind uwtable
 define void @test_clear(%"alloc::vec::Vec<u8>"* noalias nocapture dereferenceable(24) %x) unnamed_addr #2 {
 start:
