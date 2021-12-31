@@ -45,7 +45,9 @@ Tested using a TFA Dostmann [AIRCO2NTROL MINI](https://www.tfa-dostmann.de/en/pr
 
 ## What to do with it
 
-Convince people to open the windows, which will also help against Covid. At one point I took mine to the office and it showed an error because it only goes up to 3000 ppm. Reading from USB still worked, and it was reporting around 3500 ppm.
+Open the windows. The CO₂ levels you'll find in a closed room aren't exactly dangerous, but can still cause headaches, malaise and impair thinking skills. At one point I took mine to the office and it showed an error because it only goes up to 3000 ppm. Reading from USB still worked, giving concentrations around 3500 ppm.
+
+Having a constant airflow in an office will also help against Covid, possibly even more than wearing masks.
 
 ## Demo
 
