@@ -213,3 +213,5 @@ But overall it's quite decent, so I guess this is it for today.
 Thanks for reading if you got to the end.
 
 In the next post, I will try to show these tracks in a more interesting form.
+
+*Map data from [OpenStreetMap](https://openstreetmap.org/copyright)*
