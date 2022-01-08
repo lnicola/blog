@@ -78,7 +78,7 @@ start,duration,value
 2022-01-06T13:28:59+01:00,[60],[26.XXX]
 ```
 
-The `XXX`s are not in the original files, I've (quite pointlessly) censored the digits after the decimal point.
+The `XXX`s are not in the original files, I've (quite pointlessly) masked the digits after the decimal point.
 I don't think we care about the durations, but the timestamps are not monotonic, which might matter later.
 Fortunately, the timestamps appear to be correlated across the two files.
 Otherwise it would be quite annoying to match the two values.
@@ -102,7 +102,7 @@ On the other hand, we have some weird-looking entries:
 2021-11-09T15:05:49+01:00,"[60,60]","[26.XXX,-534.XXX]"
 ```
 
-At the first sight, those might appear to be two measurements merged into one entry, as the duration seems legit.
+At first sight, those might appear to be two measurements merged into one entry, as the duration seems legit.
 But the second coordinate values are clearly bogus.
 There are no entries with three values, and those with a single one don't have any outrageous outliers.
 So whatever these are, we will make sure to ignore them.
@@ -149,7 +149,7 @@ Does it work?
 
 <a href="/assets/gps-tracks-bad.webp" target="_blank"><img src="/assets/gps-tracks-bad.webp"></a>
 
-No, that not great.
+No, that's not great.
 I tried a couple of things: displaying all the matched legs, changing the profile (I originally used the wrong one), sorting the points by timestamp, and even including the timestamps in the request:
 
 <a href="/assets/gps-tracks-better.webp" target="_blank"><img src="/assets/gps-tracks-better.webp"></a>
