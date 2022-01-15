@@ -2,7 +2,7 @@
 title = "Mapping my walks with OSRM and Rust"
 date = 2022-01-15
 +++
-[Last week](/map-matching-osrm/), we took a look at the data from my smartwhatch app and how to snap it to the OpenStreetMap roads.
+[Last week](/map-matching-osrm/), we looked at the data from my smartwhatch app and how to snap it to the OpenStreetMap roads.
 If you haven't already, consider reading that post before moving on.
 This time, we'll be writing some code in the [Rust](https://rust-lang.org/) programming language.
 Keep in mind that this isn't exactly production-grade code, but rather something you would normally write in Python in one afternoon.
@@ -11,7 +11,7 @@ I'll link to the crates I'm using for the benefit of readers less familiar with 
 ## Importing the data
 
 If you recall from last time, our data points include a timestamp, the latitude and longitude, and an accuracy radius.
-We can define that as:
+We can define our point type as follows:
 
 ```rust
 pub struct Point {
@@ -21,10 +21,10 @@ pub struct Point {
 }
 ```
 
-I'm using here the [`time`](https://crates.io/crates/time) and [`geo-types`](https://crates.io/crates/geo-types) crates.
+The `OffsetDateTime` and `Point<T>` types are from the [`time`](https://crates.io/crates/time) and [`geo-types`](https://crates.io/crates/geo-types) crates, respectively.
 We'll also need [`zip`](https://crates.io/crates/zip) and [`csv`](https://crates.io/crates/csv) in order to parse the exported file.
 
-Let's see how reading the file looks like:
+Let's see what reading the file looks like:
 
 ```rust
 pub fn read_archive(path: &Path) -> Result<Vec<Point>, Error> {
@@ -39,8 +39,9 @@ pub fn read_archive(path: &Path) -> Result<Vec<Point>, Error> {
             latitudes.push(get_array_first_value(&record[2])?);
         }
     }
-    let mut times = Vec::with_capacity(latitudes.len());
-    let mut longitudes = Vec::with_capacity(latitudes.len());
+    let n = latitudes.len();
+    let mut times = Vec::with_capacity(n);
+    let mut longitudes = Vec::with_capacity(n);
     {
         let reader = archive.by_name("raw_location_longitude.csv")?;
         let mut reader = Reader::from_reader(reader);
@@ -50,7 +51,8 @@ pub fn read_archive(path: &Path) -> Result<Vec<Point>, Error> {
             longitudes.push(get_array_first_value(&record[2])?);
         }
     }
-    let mut radiuses = Vec::with_capacity(latitudes.len());
+    assert_eq!(longitudes.len(), n);
+    let mut radiuses = Vec::with_capacity(n);
     {
         let reader = archive.by_name("raw_location_horizontal-radius.csv")?;
         let mut reader = Reader::from_reader(reader);
@@ -58,6 +60,7 @@ pub fn read_archive(path: &Path) -> Result<Vec<Point>, Error> {
             radiuses.push(get_array_first_value(&record[2])?);
         }
     }
+    assert_eq!(radiuses.len(), n);
     let points = izip!(times, latitudes, longitudes, radiuses)
         .map(|(time, lat, lon, radius)| {
             let geom = geo_types::Point::new(lon, lat);
@@ -77,7 +80,7 @@ where
 }
 ```
 
-The code is slightly ugly because we need to read three different CSVs from the archive.
+The code is somewhat unwieldly because it needs to read three different CSVs from the archive.
 The ZIP reader needs to seek into the archive, so we can't read all of them at once.
 If you're familiar with Rust, that constraint is expressed in the type system by `Reader` having a mutable reference to `ZipArchive`.
 Instead, we open the files one at a time and scan through each.
@@ -88,9 +91,8 @@ Instead of reaching for a full-blown JSON parser, we simply look for a bracket o
 
 The `izip` macro comes from [`itertools`](https://crates.io/crates/itertools) and lets us iterate over the multiple collections at once.
 
-You can also notice that this implementation keeps the points in memory (twice, even).
-While somewhat common, but I'm not too fond of this approach.
-Normally I would dump the points to disk and read them back, but I want to keep the code simple for this blog post.
+Note that the implementation keeps all the points in memory (twice, even).
+Normally I would dump the points to disk and read them back, but it would make the code harder to follow in a blog post.
 In any case, this doesn't dominate our memory usage.
 
 ## Calling into OSRM
@@ -178,7 +180,7 @@ I'd normally use [GeoPackage](https://geopackage.org/), but I want to give [Flat
 This is a newer format, with a simpler structure and which should be simpler to write, since a [pure-Rust](https://crates.io/crates/flatgeobuf) implementation is available.
 Fortunately, [GDAL](https://gdal.org/) also has a reader, so it should be compatible with every application I care about at the moment.
 
-`flatgeobuf` has a slightly strange API, but I've seen worse, so I don't mind.
+`flatgeobuf` has a slightly strange API, but it's not too bad and I've seen worse.
 It integrates closely with [`geozero`](https://crates.io/crates/geozero), which is a visitor-based API for zero-copy processing of geospatial data.
 
 ```rust
@@ -404,6 +406,7 @@ let routes = points
 ```
 
 I'm using [`rayon`](https://crates.io/crates/rayon) here in order to do multiple requests to OSRM at once.
+It would be very inconsiderate to do this against another server, but I'm running my own instance in Docker.
 
 Rasterize the routes for every date into a corresponding image:
 
