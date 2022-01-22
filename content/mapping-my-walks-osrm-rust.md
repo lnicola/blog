@@ -2,7 +2,7 @@
 title = "Mapping my walks with OSRM and Rust"
 date = 2022-01-15
 +++
-[Last week](/map-matching-osrm/), we looked at the data from my smartwhatch app and how to snap it to the OpenStreetMap roads.
+[Last week](/map-matching-osrm/), we looked at the data from my smartwatch app and how to snap it to the OpenStreetMap roads.
 If you haven't already, consider reading that post before moving on.
 This time, we'll be writing some code in the [Rust](https://rust-lang.org/) programming language.
 Keep in mind that this isn't exactly production-grade code, but rather something you would normally write in Python in one afternoon.
