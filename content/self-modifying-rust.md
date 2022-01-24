@@ -7,6 +7,12 @@ This is a short post prompted by a question on [/r/rust](https://reddit.com/r/ru
 Think of how much fun it would be to store a high score list directly inside the a executable.
 When you make a copy (on floppy disk, to make things more realistic) and pass it to your friends, your high scores are persisted.
 
+## Errata
+
+ - the variable should probably be marked as `#[repr(C)]`.
+ - as [pointed out](https://www.reddit.com/r/rust/comments/saxzs8/on_selfmodifying_executables_in_rust/htwxint/) by a reader, `unsafe { ptr::read_volatile(&RUN_COUNT) }` is a better alternative to `static mut`.
+ - you probably shouldn't do this except as a party trick.
+
 ## Diving right in
 
 As a proof of concept, we'll write a program that counts how many times it has been run.
