@@ -3,9 +3,9 @@
     <head>
       <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1">
       <title>{% block title %}{{ config.title }}{% endblock title %}</title>
-      <link rel="stylesheet" href="{{ get_url(path="print.css", trailing_slash=false) | safe }}" media="print">
-      <link rel="stylesheet" href="{{ get_url(path="poole.css", trailing_slash=false) | safe }}">
-      <link rel="stylesheet" href="{{ get_url(path="hyde.css", trailing_slash=false) | safe }}">
+      <link rel="stylesheet" href="/print.css" media="print">
+      <link rel="stylesheet" href="/poole.css">
+      <link rel="stylesheet" href="/hyde.css">
 
       {% if config.generate_rss %}
         <link rel="alternate" type="application/rss+xml" title="RSS" href="{{ get_url(path="rss.xml", trailing_slash=false) | safe }}">
