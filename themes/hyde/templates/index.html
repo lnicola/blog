@@ -1,14 +1,23 @@
 <!DOCTYPE html>
 <html lang="en">
     <head>
-      <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1">
-      <title>{% block title %}{{ config.title }}{% endblock title %}</title>
-      <link rel="stylesheet" href="/print.css" media="print">
-      <link rel="stylesheet" href="/poole.css">
-      <link rel="stylesheet" href="/hyde.css">
+      <meta http-equiv="X-UA-Compatible" content="IE=edge">
+      <meta http-equiv="content-type" content="text/html; charset=utf-8">
 
-      {% if config.generate_rss %}
-        <link rel="alternate" type="application/rss+xml" title="RSS" href="{{ get_url(path="rss.xml", trailing_slash=false) | safe }}">
+      <!-- Enable responsiveness on mobile devices-->
+      <!-- viewport-fit=cover is to support iPhone X rounded corners and notch in landscape-->
+      <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1, viewport-fit=cover">
+
+      <title>{% block title %}{{ config.title }}{% endblock title %}</title>
+
+      <!-- CSS -->
+      <link rel="stylesheet" href="{{ get_url(path="print.css", trailing_slash=false) }}" media="print">
+      <link rel="stylesheet" href="{{ get_url(path="poole.css", trailing_slash=false) }}">
+      <link rel="stylesheet" href="{{ get_url(path="hyde.css", trailing_slash=false) }}">
+      <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=PT+Sans:400,400italic,700|Abril+Fatface">
+
+      {% if config.generate_feed %}
+        <link rel="alternate" type={% if config.feed_filename == "atom.xml" %}"application/atom+xml"{% else %}"application/rss+xml"{% endif %} title="RSS" href="{{ get_url(path=config.feed_filename) | safe }}">
       {% endif %}
 
       {% block extra_head %}
@@ -21,7 +30,7 @@
                 <div class="container {% if config.extra.hyde_sticky %}sidebar-sticky{% endif %}">
                     <div class="sidebar-about">
                         {% block sidebar_about %}
-                            <a href="{{ config.base_url | safe }}"><h1>{{ config.title }}</h1></a>
+                            <a href="{{ config.base_url }}"><h1>{{ config.title }}</h1></a>
                             {% if config.description %}
                             <p class="lead">{{config.description}}</p>
                             {% endif %}
@@ -31,7 +40,7 @@
                     <ul class="sidebar-nav">
                         {% block sidebar_nav %}
                         {% for link in config.extra.hyde_links %}
-                        <li><a href="{{link.url | safe}}">{{link.name}}</a></li>
+                        <li class="sidebar-nav-item"><a href="{{link.url}}">{{link.name}}</a></li>
                         {% endfor %}
                         {% endblock sidebar_nav %}
                     </ul>
@@ -42,10 +51,10 @@
         <div class="content container">
             {% block content %}
                 <div class="posts">
-                    {% for page in section.pages %}
+                    {% for page in section.pages | reverse %}
                       <div class="post">
                         <h1 class="post-title">
-                          <a href="{{ page.permalink | safe }}">
+                          <a href="{{ page.permalink }}">
                             {{ page.title }}
                           </a>
                         </h1>

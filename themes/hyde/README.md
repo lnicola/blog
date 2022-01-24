@@ -1,5 +1,5 @@
 # hyde
-Hyde is a brazen two-column [Gutenberg](https://github.com/Keats/gutenberg) based on the Jekyll theme of the same name that pairs a prominent sidebar with uncomplicated content.
+Hyde is a brazen two-column [Zola](https://github.com/getzola/zola) based on the Jekyll theme of the same name that pairs a prominent sidebar with uncomplicated content.
 
 ![Hyde screenshot](https://f.cloud.github.com/assets/98681/1831228/42af6c6a-7384-11e3-98fb-e0b923ee0468.png)
 
@@ -17,8 +17,8 @@ Hyde is a brazen two-column [Gutenberg](https://github.com/Keats/gutenberg) base
 First download this theme to your `themes` directory:
 
 ```bash
-$ cd themes
-$ git clone https://github.com/Keats/hyde.git
+cd themes
+git clone https://github.com/getzola/hyde.git
 ```
 and then enable it in your `config.toml`:
 

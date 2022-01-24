@@ -23,6 +23,7 @@
  * Container
  * Masthead
  * Posts and pages
+ * Footnotes
  * Pagination
  * Reverse layout
  * Themes
@@ -48,7 +49,7 @@ body {
 }
 
 html {
-  font-family: "Helvetica Neue", "DejaVu Sans", Helvetica, Arial, sans-serif;
+  font-family: "Helvetica Neue", Helvetica, Arial, sans-serif;
   font-size: 16px;
   line-height: 1.5;
 }
@@ -147,7 +148,7 @@ abbr[title] {
 /* Code */
 code,
 pre {
-  font-family: Menlo, Monaco, Consolas, "DejaVu Sans Mono", "Courier New", monospace;
+  font-family: Menlo, Monaco, "Courier New", monospace;
 }
 code {
   padding: .25em .5em;
@@ -164,8 +165,6 @@ pre {
   font-size: .8rem;
   line-height: 1.4;
   overflow-x: scroll;
-  word-break: break-all;
-  word-wrap: break-word;
   background-color: #f9f9f9;
 }
 pre code {
@@ -350,6 +349,20 @@ tbody tr:nth-child(odd) th {
 }
 
 
+/* Footnotes */
+.footnote-definition:first-of-type {
+  border-top: 1px solid;
+  padding-top: 1rem;
+}
+.footnote-definition {
+  margin-top: 1rem;
+}
+.footnote-definition sup {
+  margin-left: -1rem;
+  float: left;
+}
+
+
 /*
  * Pagination
  *
@@ -361,7 +374,7 @@ tbody tr:nth-child(odd) th {
   overflow: hidden; /* clearfix */
   margin-left: -1rem;
   margin-right: -1rem;
-  font-family: "PT Sans", "DejaVu Sans", Helvetica, Arial, sans-serif;
+  font-family: "PT Sans", Helvetica, Arial, sans-serif;
   color: #ccc;
   text-align: center;
 }
@@ -399,17 +412,4 @@ a.pagination-item:hover {
     border-top-right-radius:    4px;
     border-bottom-right-radius: 4px;
   }
-}
-
-/* Footnotes */
-.footnote-definition:first-of-type {
-  border-top: 1px solid;
-  padding-top: 1rem;
-}
-.footnote-definition {
-  margin-top: 1rem;
-}
-.footnote-definition sup {
-  margin-left: -1rem;
-  float: left;
 }
