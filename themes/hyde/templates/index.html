@@ -1,19 +1,13 @@
 <!DOCTYPE html>
 <html lang="en">
     <head>
-      <meta http-equiv="X-UA-Compatible" content="IE=edge">
-      <meta http-equiv="content-type" content="text/html; charset=utf-8">
-
-      <!-- Enable responsiveness on mobile devices-->
-      <!-- viewport-fit=cover is to support iPhone X rounded corners and notch in landscape-->
       <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1, viewport-fit=cover">
 
       <title>{% block title %}{{ config.title }}{% endblock title %}</title>
 
-      <!-- CSS -->
-      <link rel="stylesheet" href="{{ get_url(path="print.css", trailing_slash=false) }}" media="print">
-      <link rel="stylesheet" href="{{ get_url(path="poole.css", trailing_slash=false) }}">
-      <link rel="stylesheet" href="{{ get_url(path="hyde.css", trailing_slash=false) }}">
+      <link rel="stylesheet" href="/print.css" media="print">
+      <link rel="stylesheet" href="/poole.css">
+      <link rel="stylesheet" href="/hyde.css">
       <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=PT+Sans:400,400italic,700|Abril+Fatface">
 
       {% if config.generate_feed %}
