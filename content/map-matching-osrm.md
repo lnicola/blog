@@ -154,7 +154,8 @@ I tried a couple of things: displaying all the matched legs, changing the profil
 
 <a href="/assets/gps-tracks-better.webp" target="_blank"><img src="/assets/gps-tracks-better.webp"></a>
 
-This is much better. What if we also use the location accuracy, available in the `raw_location_horizontal-radius.csv` file from the archive?
+This is much better.
+What if we also use the location accuracy, available in the `raw_location_horizontal-radius.csv` file from the archive?
 
 <a href="/assets/gps-tracks-not-better.webp" target="_blank"><img src="/assets/gps-tracks-not-better.webp"></a>
 

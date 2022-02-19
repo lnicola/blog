@@ -86,7 +86,8 @@ $ systemctl status monitor-temperature
      [snip]
 ```
 
-There's also one advanced feature: you can retrieve file descriptors passed by the service manager, for socket-activated daemons. You can read more on it [here](https://www.freedesktop.org/software/systemd/man/sd_listen_fds.html).
+There's also one advanced feature: you can retrieve file descriptors passed by the service manager, for socket-activated daemons.
+You can read more on it [here](https://www.freedesktop.org/software/systemd/man/sd_listen_fds.html).
 
 ## Final words
 

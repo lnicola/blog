@@ -2,17 +2,26 @@
 title = "Rust and the Case of the Redundant Comparison"
 date = 2018-08-04
 +++
-A couple of days ago I landed my [second pull request](https://github.com/rust-lang/rust/pull/52908) in the [Rust Programming Language](https://www.rust-lang.org/) [repository](https://github.com/rust-lang/rust/). This is the story of how that went.
+A couple of days ago I landed my [second pull request](https://github.com/rust-lang/rust/pull/52908) in the [Rust Programming Language](https://www.rust-lang.org/) [repository](https://github.com/rust-lang/rust/).
+This is the story of how that went.
 
 This post is inspired by [other](https://llogiq.github.io/2018/08/04/improve.html) [posts](https://blog.mozilla.org/nnethercote/) about improving the Rust compiler.
 
-**TL;DR:** I made a 20 lines PR to the Rust standard library. If you're so inclined, you should try doing the same.
+**TL;DR:** I made a 20 lines PR to the Rust standard library.
+If you're so inclined, you should try doing the same.
 
 ## The chase after unsafe code
 
-There's been quite a bit of [noise](https://www.reddit.com/r/rust/comments/8s7gei/unsafe_rust_in_actixweb_other_libraries/) recently about the amount of unsafe code in the [`actix-web`](https://actix.rs/) framework. I won't discuss the merits of grabbing the pitchforks as soon as someone writes code of a buggy and unidiomatic nature [^pitchforks]. But my first encounter with `unsafe` in Rust was a hard to reproduce, Windows-only, crashing bug in a crate. On that code path there was a single, seemingly innocuous, `unsafe` line. It took me and the crate's author maybe half an hour to find it, with the `unsafe` arrow pointing at it the whole time [^unsafe].
+There's been quite a bit of [noise](https://www.reddit.com/r/rust/comments/8s7gei/unsafe_rust_in_actixweb_other_libraries/) recently about the amount of unsafe code in the [`actix-web`](https://actix.rs/) framework.
+I won't discuss the merits of grabbing the pitchforks as soon as someone writes code of a buggy and unidiomatic nature [^pitchforks].
+But my first encounter with `unsafe` in Rust was a hard to reproduce, Windows-only, crashing bug in a crate.
+On that code path there was a single, seemingly innocuous, `unsafe` line.
+It took me and the crate's author maybe half an hour to find it, with the `unsafe` arrow pointing at it the whole time [^unsafe].
 
-To be fair, `actix-web` now lost a large chunk of its unsafe code, although it's still not quite my cup of tea. So I downloaded the source of [`hyper`](https://github.com/hyperium/hyper), another popular, if much lower-level, HTTP library. Unfortunately (‽), it had relatively few `unsafe` blocks, many of them in test code. But one idiom caught my eye:
+To be fair, `actix-web` now lost a large chunk of its unsafe code, although it's still not quite my cup of tea.
+So I downloaded the source of [`hyper`](https://github.com/hyperium/hyper), another popular, if much lower-level, HTTP library.
+Unfortunately (‽), it had relatively few `unsafe` blocks, many of them in test code.
+But one idiom caught my eye:
 
 ```rust
 #[derive(Clone)]
@@ -31,9 +40,12 @@ impl Cursor<Vec<u8>> {
 }
 ```
 
-The code is trying to clear a `Vec` by forcefully setting its length to `0`. That's a bad idea if the elements of the vector implement `Drop`, because they won't be destroyed. Fortunately, `hyper` only did that for `u8` values, but the whole thing seemed unnecessary.
+The code is trying to clear a `Vec` by forcefully setting its length to `0`.
+That's a bad idea if the elements of the vector implement `Drop`, because they won't be destroyed.
+Fortunately, `hyper` only did that for `u8` values, but the whole thing seemed unnecessary.
 
-I almost sent a PR to nuke them, but the crate author said that `set_len(0)` might be faster than `clear()`. That couldn't be true, since `clear` has nothing to do besides setting the length, so I tried to prove it:
+I almost sent a PR to nuke them, but the crate author said that `set_len(0)` might be faster than `clear()`.
+That couldn't be true, since `clear` has nothing to do besides setting the length, so I tried to prove it:
 
 ```rust
 #[no_mangle]
@@ -63,7 +75,11 @@ test_clear:
     retq
 ```
 
-If you're not used to reading assembly, the `set_len` code sets the vector's length to zero (`movq`) and returns. `clear`, however, compares the current length with `0`. If it's empty, the code jumps to the end of the function (`je` stands for "jump if equal"). Otherwise, the length gets set to `0` and the function returns. That's a useless comparison, the same as:
+If you're not used to reading assembly, the `set_len` code sets the vector's length to zero (`movq`) and returns.
+`clear`, however, compares the current length with `0`.
+If it's empty, the code jumps to the end of the function (`je` stands for "jump if equal").
+Otherwise, the length gets set to `0` and the function returns.
+That's a useless comparison, the same as:
 
 ```rust
 if len != 0 {
@@ -71,9 +87,11 @@ if len != 0 {
 }
 ```
 
-LLVM is pretty good, so it's a bit surprising to see it generate this [^peepholes]. In its favour, the debug version is much larger, so the optimizer is still doing a great job.
+LLVM is pretty good, so it's a bit surprising to see it generate this [^peepholes].
+In its favour, the debug version is much larger, so the optimizer is still doing a great job.
 
-Do the extra two instructions matter in practice? I didn't benchmark, but my intuition says no [^intuition], and the `set_len(0)` calls were mostly in test code. However, the crate's author seemed unconvinced and I didn't want to be the one who slowed down `hyper`.
+Do the extra two instructions matter in practice? I didn't benchmark, but my intuition says no [^intuition], and the `set_len(0)` calls were mostly in test code.
+However, the crate's author seemed unconvinced and I didn't want to be the one who slowed down `hyper`.
 
 ## Down the rabbit hole
 
@@ -99,7 +117,9 @@ pub fn truncate(&mut self, len: usize) {
 }
 ```
 
-The code is a bit convoluted, because of the reason described in the comment. `drop` can panic [^panic], so the function must decrement the length before dropping an element. In case of a panic, the last element of the `Vec` will be a valid one.
+The code is a bit convoluted, because of the reason described in the comment.
+`drop` can panic [^panic], so the function must decrement the length before dropping an element.
+In case of a panic, the last element of the `Vec` will be a valid one.
 
 A quick test on the [Playground](https://play.rust-lang.org/) shows that if we set the length at the end, the compiler generates the code that we expect:
 
@@ -123,9 +143,14 @@ playground::truncate_wrong_dont_use:
     retq
 ```
 
-But that won't do. At this point I filed an issue in the compiler repository, then dropped [sic!] it, waiting for someone else to come up with a fix. Unfortunately, nobody did, so I gave it a little more thought.
+But that won't do.
+At this point I filed an issue in the compiler repository, then dropped [sic!] it, waiting for someone else to come up with a fix.
+Unfortunately, nobody did, so I gave it a little more thought.
 
-If we could run some code at the end, even on panics, we might be able to set the length from there. And we can, with a helper struct which applies the change when dropped. It sounds harder for the compiler, but there's only one way to check. And if we scroll around the file, we find this:
+If we could run some code at the end, even on panics, we might be able to set the length from there.
+And we can, with a helper struct which applies the change when dropped.
+It sounds harder for the compiler, but there's only one way to check.
+And if we scroll around the file, we find this:
 
 ```rust
 // Set the length of the vec when the `SetLenOnDrop` value goes out of scope.
@@ -158,11 +183,13 @@ impl<'a> Drop for SetLenOnDrop<'a> {
 }
 ```
 
-The comment indicates that LLVM gets confused into thinking that modifying the vector's data could change its length. And that sounds exactly like our issue.
+The comment indicates that LLVM gets confused into thinking that modifying the vector's data could change its length.
+And that sounds exactly like our issue.
 
 ## Compiling a compiler
 
-I cloned the compiler repository and skimmed the [contributing guide](https://github.com/rust-lang/rust/blob/master/CONTRIBUTING.md). I copied the sample configuration file and changed a couple of lines:
+I cloned the compiler repository and skimmed the [contributing guide](https://github.com/rust-lang/rust/blob/master/CONTRIBUTING.md).
+I copied the sample configuration file and changed a couple of lines:
 
 ```diff
 diff --git 1/config.toml.example 2/config.toml
@@ -193,21 +220,32 @@ index 9907341633..477c558545 100644
  # library. Also enables compilation of debug! and trace! logging macros.
 ```
 
-I didn't want to download another compiler, so I filled in the paths to mine. The `codegen-units` setting makes the compiler produce code from multiple threads at once. The trade-off involved is that the generated code is slower. Initially, I went for an unoptimized build (which the comments advise against), but ended up cancelling it.
+I didn't want to download another compiler, so I filled in the paths to mine.
+The `codegen-units` setting makes the compiler produce code from multiple threads at once.
+The trade-off involved is that the generated code is slower.
+Initially, I went for an unoptimized build (which the comments advise against), but ended up cancelling it.
 
-The way compilers are usually built, there are a couple of _stages_. Stage 0 is an existing compiler, stage 1 is the compiler we are working on &mdash; built by the stage 0 one, and stage 2 is our version built by itself. If we make the compiler generate faster &mdash; or more buggy &mdash; code, stage 1 won't be affected, but stage 2 will. I wasn't planning to change anything in the compiler, so stage 1 was enough for me.
+The way compilers are usually built, there are a couple of _stages_.
+Stage 0 is an existing compiler, stage 1 is the compiler we are working on &mdash; built by the stage 0 one, and stage 2 is our version built by itself.
+If we make the compiler generate faster &mdash; or more buggy &mdash; code, stage 1 won't be affected, but stage 2 will.
+I wasn't planning to change anything in the compiler, so stage 1 was enough for me.
 
-Apparently, there is a small complication: some stage 0 artefacts like `libstd` will still be rebuilt, triggering a cascade of rebuilds that I didn't want. After asking around on IRC, I found the command line I wanted:
+Apparently, there is a small complication: some stage 0 artefacts like `libstd` will still be rebuilt, triggering a cascade of rebuilds that I didn't want.
+After asking around on IRC, I found the command line I wanted:
 
 ```bash
 ./x.py --keep-stage 0 --stage 1
 ```
 
-This is all described in the [bootstrapping documentation](https://github.com/rust-lang/rust/blob/master/src/bootstrap/README.md), which I completely missed. I also tried incremental builds (via `config.toml`, not the command line &mdash; not sure if it matters), which didn't work out too well for me: an incremental build after touching a single file was just a tad faster than a non-incremental one including LLVM. But there may have been something wrong with my build files, so it's still worth trying.
+This is all described in the [bootstrapping documentation](https://github.com/rust-lang/rust/blob/master/src/bootstrap/README.md), which I completely missed.
+I also tried incremental builds (via `config.toml`, not the command line &mdash; not sure if it matters), which didn't work out too well for me: an incremental build after touching a single file was just a tad faster than a non-incremental one including LLVM.
+But there may have been something wrong with my build files, so it's still worth trying.
 
 ## Banishing a read
 
-There was no need to do an initial build, but I wanted to check that everything worked. That took about 40 minutes on my laptop. I then added the missing method to the `SetLenOnDrop` struct:
+There was no need to do an initial build, but I wanted to check that everything worked.
+That took about 40 minutes on my laptop.
+I then added the missing method to the `SetLenOnDrop` struct:
 
 ```rust
 #[inline]
@@ -239,7 +277,9 @@ pub fn truncate(&mut self, len: usize) {
 }
 ```
 
-The code walks a pointer backwards, destroying each element. Meanwhile, the helper struct is also keeping track of the remaining length. The code does seem more complex (it's counting twice), but does it work? Let's check some assembly.
+The code walks a pointer backwards, destroying each element.
+Meanwhile, the helper struct is also keeping track of the remaining length.
+The code does seem more complex (it's counting twice), but does it work? Let's check some assembly.
 
 ```rust
 #[no_mangle]
@@ -310,13 +350,21 @@ How about the patched one?
    84d4f:       c3                      retq
 ```
 
-The `clear()` call works out nicely, it's what we wanted to see (`nopl` is a "no-operation" instruction, used to align the functions) [^zero]. `truncate(n)` also seems fine: it takes the minimum of the current and new length, then writes it back. The `truncate(5)` variant does the same thing, but loads `5` into the `ecx` register in an awkward way: `mov %rax, %rcx` might have been better. Alas, it came out pretty well.
+The `clear()` call works out nicely, it's what we wanted to see (`nopl` is a "no-operation" instruction, used to align the functions) [^zero].
+`truncate(n)` also seems fine: it takes the minimum of the current and new length, then writes it back.
+The `truncate(5)` variant does the same thing, but loads `5` into the `ecx` register in an awkward way: `mov %rax, %rcx` might have been better.
+Alas, it came out pretty well.
 
-I also tested with a `Drop` type (`String`). I didn't try to make sense of the assembly output, but the new code was similar. You can see it [on GitHub](https://github.com/rust-lang/rust/pull/52908#issue-205157661), if you're curious.
+I also tested with a `Drop` type (`String`).
+I didn't try to make sense of the assembly output, but the new code was similar.
+You can see it [on GitHub](https://github.com/rust-lang/rust/pull/52908#issue-205157661), if you're curious.
 
 ## Wrapping it up
 
-At this point I committed the code and opened a pull request on GitHub. I got assigned a reviewer who reviewed my code in less than two hours. He asked me to add a codegen test to make sure the compiler doesn't revert to the worse code sequence in the future. I'd never written one, but after looking at the existing ones, I put this up:
+At this point I committed the code and opened a pull request on GitHub.
+I got assigned a reviewer who reviewed my code in less than two hours.
+He asked me to add a codegen test to make sure the compiler doesn't revert to the worse code sequence in the future.
+I'd never written one, but after looking at the existing ones, I put this up:
 
 ```rust
 // compile-flags: -O
@@ -332,7 +380,11 @@ pub fn vec_clear(x: &mut Vec<u32>) {
 }
 ```
 
-The Rust compiler produces what's called LLVM IR as output. It's similar to, but more portable and higher-level than assembly language. The IR gets passed to LLVM, which optimizes it and outputs a binary for the platform you're targeting. `load` and `icmp` are LLVM's terms for `movq` and `cmpq`. The test checks that the generated code doesn't contain the two instructions.
+The Rust compiler produces what's called LLVM IR as output.
+It's similar to, but more portable and higher-level than assembly language.
+The IR gets passed to LLVM, which optimizes it and outputs a binary for the platform you're targeting.
+`load` and `icmp` are LLVM's terms for `movq` and `cmpq`.
+The test checks that the generated code doesn't contain the two instructions.
 
 To figure that out, I used the Playground to see my function's IR:
 
@@ -354,7 +406,8 @@ bb3.preheader.i.i:                                ; preds = %start
 }
 ```
 
-That's a mouthful, but you can find the length field address computation (`getelementptr`, affectionately called `gep`), the load and comparison, the branch and the store. `%0` &hellip; `%5` are similar to variables, but are [only assigned once](https://en.wikipedia.org/wiki/Static_single_assignment_form).
+That's a mouthful, but you can find the length field address computation (`getelementptr`, affectionately called `gep`), the load and comparison, the branch and the store.
+`%0` &hellip; `%5` are similar to variables, but are [only assigned once](https://en.wikipedia.org/wiki/Static_single_assignment_form).
 
 I then tried to run my test:
 
@@ -362,23 +415,38 @@ I then tried to run my test:
 ./x.py test src/test/codegen --keep-stage 0 --stage 1
 ```
 
-But that [didn't seem to work](https://github.com/rust-lang/rust/issues/52337), possibly due to me using a local compiler for stage 0 (remember those `config.toml` settings?). So I crossed my fingers and pushed the code, waited for the relatively quick (half an hour) Travis tests to pass, pinged my reviewer and then it was out of my hands. The Rust team uses [bors](https://bors.tech/) to merge one pull request at a time. This is done to avoid cases when two PRs work independently, but not together. The downside is that the whole process tends to be rather slow. Someone from the Rust team takes the pull requests that seem "harmless", merges them into a single one, then tries to land that. In my case this failed a couple of times, then finally went through.
+But that [didn't seem to work](https://github.com/rust-lang/rust/issues/52337), possibly due to me using a local compiler for stage 0 (remember those `config.toml` settings?).
+So I crossed my fingers and pushed the code, waited for the relatively quick (half an hour) Travis tests to pass, pinged my reviewer and then it was out of my hands.
+The Rust team uses [bors](https://bors.tech/) to merge one pull request at a time.
+This is done to avoid cases when two PRs work independently, but not together.
+The downside is that the whole process tends to be rather slow.
+Someone from the Rust team takes the pull requests that seem "harmless", merges them into a single one, then tries to land that.
+In my case this failed a couple of times, then finally went through.
 
 ## Aftermath
 
-My change missed the 1.29 deadline by a day, but should be included in 1.30. After it was merged, I was finally able to send a [pull request](https://github.com/hyperium/hyper/pull/1619) to `hyper`, removing four measly (but a quarter of all!) `unsafe` blocks.
+My change missed the 1.29 deadline by a day, but should be included in 1.30.
+After it was merged, I was finally able to send a [pull request](https://github.com/hyperium/hyper/pull/1619) to `hyper`, removing four measly (but a quarter of all!) `unsafe` blocks.
 
-My changes didn't make `hyper` safer [^pitchforks-2], nor do I expect them to have a measurable impact on the compiled code. But in the end, every little bit helps, while you might also call it a learning experience. And if I managed, then so could you &mdash; so consider giving it a shot. And if compilers aren't your thing, there's plenty of projects that could use a hand.
+My changes didn't make `hyper` safer [^pitchforks-2], nor do I expect them to have a measurable impact on the compiled code.
+But in the end, every little bit helps, while you might also call it a learning experience.
+And if I managed, then so could you &mdash; so consider giving it a shot.
+And if compilers aren't your thing, there's plenty of projects that could use a hand.
 
 [^pitchforks]: As I've been known to do myself at times.
 
-[^unsafe]: Some detractors of Rust argue that, since the standard library and many crates use unsafe code, the whole language is unsafe. `unsafe` is unavoidable, but it's a declaration of "Here be dragons", while you can trust the compiler to have your back for the rest of the code. Compare that to C.
+[^unsafe]: Some detractors of Rust argue that, since the standard library and many crates use unsafe code, the whole language is unsafe.
+`unsafe` is unavoidable, but it's a declaration of "Here be dragons", while you can trust the compiler to have your back for the rest of the code.
+Compare that to C.
 
-[^peepholes]: Compilers have "peephole optimization" phases where they clean up sequences of instructions like these. LLVM might be missing one for this specific case. It might be an interesting exercise to analyze binaries generated by LLVM to check if this pattern occurs more often.
+[^peepholes]: Compilers have "peephole optimization" phases where they clean up sequences of instructions like these.
+LLVM might be missing one for this specific case.
+It might be an interesting exercise to analyze binaries generated by LLVM to check if this pattern occurs more often.
 
 [^intuition]: And we've already seen how that goes.
 
-[^panic]: Rust doesn't have exceptions, except panics are totally like exceptions, but more exceptional. You're not supposed to panic without a good reason.
+[^panic]: Rust doesn't have exceptions, except panics are totally like exceptions, but more exceptional.
+You're not supposed to panic without a good reason.
 
 [^zero]: The extra `00` byte between `movq` and `retq` must be either a no-op, or part of `movq`.
 
