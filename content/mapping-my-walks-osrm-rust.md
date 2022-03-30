@@ -437,8 +437,8 @@ accumulate_images(bbox, &images)?;
 
 And just one thing left to do:
 
-```
-ffmpeg -framerate 15 -pattern_type glob -i '*.png' -c:v libwebp_anim -lossless 1 -quality 100 gps_tracks.webp
+```bash
+$ ffmpeg -framerate 15 -pattern_type glob -i '*.png' -c:v libwebp_anim -lossless 1 -quality 100 gps_tracks.webp
 ```
 
 You can see the result below:

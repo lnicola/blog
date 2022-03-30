@@ -130,17 +130,17 @@ It was quite small, at 247 MB.
 In order to use OSRM, we need to do some pre-processing steps, and also pick a profile.
 `foot` is a good choice here because I don't care about one-way streets and passable barriers.
 
-```
-docker run --rm -t -v $PWD:/data osrm/osrm-backend osrm-extract -p /opt/foot.lua /data/romania.osm.pbf
-docker run --rm -t -v $PWD:/data osrm/osrm-backend osrm-partition /data/romania.osrm
-docker run --rm -t -v $PWD:/data osrm/osrm-backend osrm-customize /data/romania.osrm
+```bash
+$ docker run --rm -t -v $PWD:/data osrm/osrm-backend osrm-extract -p /opt/foot.lua /data/romania.osm.pbf
+$ docker run --rm -t -v $PWD:/data osrm/osrm-backend osrm-partition /data/romania.osrm
+$ docker run --rm -t -v $PWD:/data osrm/osrm-backend osrm-customize /data/romania.osrm
 ```
 
 On my computer this took 33 seconds and used about 3.1 GB RAM at its peak.
 Now we can start the OSRM routing service:
 
-```
-docker run --rm -p 5000:5000 -v $PWD:/data osrm/osrm-backend osrm-routed --algorithm mld --max-matching-size 5000 /data/romania.osrm
+```bash
+$ docker run --rm -p 5000:5000 -v $PWD:/data osrm/osrm-backend osrm-routed --algorithm mld --max-matching-size 5000 /data/romania.osrm
 ```
 
 It's a bit weird, but `match` also expects a profile.
@@ -170,8 +170,8 @@ But some are still missing and this confused me quite a bit until I looked at th
 
 Hint: don't try open a `pbf` file directly; you can use [GDAL](https://gdal.org/) to convert it to a format with spatial index support:
 
-```
-ogr2ogr romania.osm.gpkg romania.osm.pbf
+```bash
+$ ogr2ogr romania.osm.gpkg romania.osm.pbf
 ```
 
 <a href="/assets/gps-tracks-osm-gaps.webp" target="_blank"><img src="/assets/gps-tracks-osm-gaps.webp"></a>
