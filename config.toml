@@ -19,4 +19,5 @@ highlight_code = true
 hyde_links = [
     { url = "/", name = "Home" },
     { url = "/content/acknowledgements/", name = "Acknowledgements" },
+    { url = "https://www.buymeacoffee.com/lnicolaq", name = "Buy me a ☕" },
 ]
