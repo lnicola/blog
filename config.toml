@@ -18,6 +18,7 @@ theme = "hyde"
 highlight_code = true
 
 [extra]
+author = "Laurențiu Nicola"
 hyde_links = [
     { url = "/", name = "Home" },
     { url = "/content/acknowledgements/", name = "Acknowledgements" },
