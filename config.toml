@@ -4,8 +4,8 @@ base_url = "https://blog.dend.ro/"
 # title = "random words"
 # description = "life, the universe and everything else"
 
-# Whether to automatically compile all Sass files in the sass directory
 compile_sass = true
+minify_html = true
 
 # Whether to build a search index to be used later on by a JavaScript library
 build_search_index = false
@@ -21,6 +21,7 @@ highlight_code = true
 author = "Laurențiu Nicola"
 hyde_links = [
     { url = "/", name = "Home" },
+    { url = "/content/blogroll/", name = "Blogroll" },
     { url = "/content/acknowledgements/", name = "Acknowledgements" },
     { url = "https://www.buymeacoffee.com/lnicolaq", name = "Buy me a ☕" },
 ]
