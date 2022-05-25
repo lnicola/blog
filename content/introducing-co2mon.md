@@ -10,7 +10,7 @@ These are relatively popular, because the protocol [was reverse-engineered](http
 If you're on Linux, you will need permissions to access the device node.
 The following `udev` rule will give permissions to every user on the system:
 
-```udev
+```
 ACTION=="add|change", SUBSYSTEMS=="usb", ATTRS{idVendor}=="04d9", ATTRS{idProduct}=="a052", MODE:="0666"
 ```
 
