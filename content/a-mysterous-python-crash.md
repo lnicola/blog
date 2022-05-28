@@ -36,7 +36,7 @@ Thread 1 "python3" received signal SIGILL, Illegal instruction.
 0x00007ffff556545c in dgemm_kernel_PILEDRIVER () from /usr/local/lib64/python3.6/site-packages/numpy/core/../../numpy.libs/libopenblasp-r0-8a0c371f.3.13.so
 ```
 
-_Heads-up: For reasons I'll show below, I'm reproducing the issue on my own computer. I'm trying to doctor the outputs, but there might be some inconsistencies._
+_Heads-up: for reasons I'll show below, I'm reproducing the issue on my own computer. I'm trying to doctor the outputs, but there might be some inconsistencies._
 
 It appears to be crashing in a `dgemm` kernel in OpenBLAS, docs courtesy of LAPACK:
 
