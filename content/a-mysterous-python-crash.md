@@ -165,6 +165,6 @@ Just a couple of things:
  - it's a good idea to provide escape hatches from optimized code paths
  - the CPU is a lie
 
- ---
+---
 
- And by the way, if you enjoyed this short post, please consider [buying me a coffee](https://www.buymeacoffee.com/lnicolaq).
+And by the way, if you enjoyed this short post, please consider [buying me a coffee](https://www.buymeacoffee.com/lnicolaq).
