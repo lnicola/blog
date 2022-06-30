@@ -7,20 +7,20 @@ One [cloud provider](https://blog.dend.ro/a-mysterous-python-crash/) I sometimes
 
 ## Something is broken
 
-I have a workload which involves relatively many of those images at once, accessed through the [`s3fs`](https://github.com/s3fs-fuse/s3fs-fuse) FUSE helper (a way to make an S3 container look like a file system).
-For some reason, sometimes it starts failing requests after a while, and using NFS is a way to work around that.
+I have a workload which involves relatively many of those images at once, accessed through the [`s3fs`](https://github.com/s3fs-fuse/s3fs-fuse) FUSE helper (a way to make an S3 bucket look like a file system).
+For some reason, sometimes requests start failing after a while, and using NFS is a way to work around that.
 
-But today strange was happening when using the NFS share.
+But something strange was happening today when I was trying to use the NFS share.
 One version of [GDAL](https://github.com/OSGeo/gdal/) was able to read the files, while another, older one, complained they were invalid and wasn't able to open them.
 Using `s3fs`, both GDAL versions worked fine.
 
 This made me think that NFS is returning corrupted files (maybe with some junk at the end), and the newer GDAL was able to ignore that.
 But on a closer look, both `s3fs` and NFS returned identical (up to a checksum, at least) files.
-This was the cause of some head scratching, since reading identical files should yield identical results.
+This was the cause of some head scratching, since reading a the same file from different places should yield the same results &mdash;
 
 ## My favourite tool
 
-Unless maybe it shouldn't?
+&mdash; unless maybe it shouldn't?
 This story seemed fishy and I broke out what's probably my favourite debugging tool, `strace`.
 `strace` sets breakpoints on every interaction of a program with the operating system ([system call](https://en.wikipedia.org/wiki/System_call)) and displays the request involved, including the arguments.
 So, for example, if Linux a program tries to open a file, it will show up in `strace` as an `open` or `openat` call.
@@ -55,7 +55,7 @@ If you have trouble reading the log, the full sequence is:
  - `gdalinfo` tries to open the file again and gets a permissions-related error
 
 Sure, this is a bit redundant, but it doesn't matter that much when you're reading 115 MB.
-But notice how the first `open` call works, then the next ones fail.
+Note how the first `open` call works, then but the next ones fail.
 
 In contrast, the newer GDAL works because it only tries to open the file once.
 So what's wrong, can we only read files once?
@@ -96,7 +96,7 @@ So yeah, our theory was correct.
 I don't know what kind of server we're dealing with, but it doesn't let us open any file multiple times.
 It even fails &mdash; maybe not surprisingly &mdash; if we're opening it from different processes.
 
-I wasn't able to find any reports of a similar problem, so one of my reasons for writing this to make it available to search engines.
+I wasn't able to find any reports of a similar problem, so one of my reasons for writing this is to make it available to search engines.
 
 ## The solution
 
