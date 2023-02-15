@@ -38,7 +38,7 @@ If your daemon has a long start-up sequence, `systemd` can tell you whether it i
 In order to do that, you can set the `Type` clause.
 
 The simplest, and also the default, option is called `simple`.
-It means that the daemon is marked as ready right after it staarts.
+It means that the daemon is marked as ready right after it starts.
 Another useful option is `forking`, which means that the service does the classic double-fork dance.
 You can read more about these two (any many others) in your [`systemd.service`](https://www.freedesktop.org/software/systemd/man/systemd.service.html) documentation page.
 
