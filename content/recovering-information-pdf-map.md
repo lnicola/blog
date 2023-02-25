@@ -3,13 +3,13 @@ title = "Recovering information from a PDF map"
 date = 2023-02-20
 +++
 This post is going to be about a question that recently came up in the GDAL Matrix room.
-A user had a discrete heat map of noise levels in their town, in the PDF format, and wanted to extract some usable information out of it.
+A user had a discrete heat map of noise levels in their town as a PDF, and wanted to extract some usable information out of it.
 Let's see if we can help them.
 
 ## Looking at the data
 
 If you want to play along, you can download the file from [here](https://hartiacustice.pmb.ro/page/hstrat).
-Pick the first one, with `Lzsn` in its name.
+Pick the [first one](https://hartiacustice.pmb.ro/docs/harti/3.1_harti_strategice_de_zgomot_drumuri/drumuri_Lzsn.pdf), with `Lzsn` in its name.
 It's a 42 MB PDF, looking like this (click on the image for a better version):
 
 <a href="/assets/lzsn-sample.webp" target="_blank"><img src="/assets/lzsn-sample-med.webp"></a>
@@ -26,14 +26,14 @@ It happens in Evince, Okular and QGIS, but I don't have a "real" PDF reader to t
 If you're following along, you might have noticed that QGIS took about 20 minutes to open the file and probably just as long to close it.
 That's not great and puts our software in a bad light, so let's convert it to a better format.
 
-Using [GDAL](https://gdal.org/), you can convert it to a GeoTIFF this way:
+Using [GDAL](https://gdal.org/), you can convert it to a GeoTIFF like this:
 
 ```bash
 $ gdal_translate drumuri_Lzsn.pdf drumuri_Lzsn_temp.tif
 $ gdal_translate -f COG -co NUM_THREADS=ALL_CPUS drumuri_Lzsn_temp.tif drumuri_Lzsn.tif
 ```
 
-A [COG](https://www.cogeo.org/) is just a GeoTIFF laid out in a specific way.
+A [COG](https://www.cogeo.org/) is just a GeoTIFF laid out so it can load faster while zooming in.
 If you're wondering why I'm doing the conversion in two steps, it just happens to be very slow otherwise, while the commands above should only take a couple of seconds.
 COGs are tiled (stored in blocks), and going from a striped (stored by lines) to a tiled layout can be slow, but I don't think that's the case for our PDF.
 Anyway, once you have a TIFF, QGIS should be quite snappy.
@@ -191,7 +191,7 @@ Band 3 Block=512x512 Type=Byte, ColorInterp=Blue
     STATISTICS_VALID_PERCENT=100
 ```
 
-You can see it's using EPSG:3857 "Web Mercator" as the coordonate reference system.
+You can see it's using EPSG:3857 "Web Mercator" as the coordinate reference system.
 This tells QGIS and other software how to convert the coordinates in the image to latitude and longitude on the globe.
 Just below we also have the corner coordinates and pixel spacing (size), which is about 3.55 meters or 3.89 yards.
 
@@ -308,13 +308,13 @@ In the screenshot below, I reduced the transparency of `drumuri_Lzsn-data.tif`:
 
 <a href="/assets/lzsn-misalignment.webp" target="_blank"><img src="/assets/lzsn-misalignment-med.webp"></a>
 
-That's pretty awful, and it seems that our approach wass not quite right.
+That's pretty awful, and it seems that our approach was not quite right.
 In retrospect, this makes sense.
 The PDF had a correct georeference, but it doesn't necessarily transfer to the one we extracted, because we didn't take into account the position and scale of the image on the page.
 
 ## Georeferencing, again
 
-Unfortunately, not all is lost, as this must be a problem a lot of QGIS users must running into.
+Fortunately, not all is lost, as this must be a problem a lot of QGIS users must running into.
 Digitizing a map doesn't seem like such a rare use case, and I knew that QGIS has a feature that helps with this.
 What we'd like to do is pick some points on our image, find their pair in the original one, and let QGIS figure it out.
 In GIS-speak, these are called GCPs, for Ground Control Points.
