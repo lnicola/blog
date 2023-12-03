@@ -1,8 +1,8 @@
 +++
 title = "Recovering information from a PDF map"
-date = 2023-02-20
+date = 2023-02-23
 +++
-This post is going to be about a question that recently came up in the GDAL Matrix room.
+This post is going to be about a question that recently came up in the [GDAL Matrix room](https://matrix.to/#/#gdal:osgeo.org).
 A user had a discrete heat map of noise levels in their town as a PDF, and wanted to extract some usable information out of it.
 Let's see if we can help them.
 
