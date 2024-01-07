@@ -1,0 +1,3 @@
+User-agent: *
+Allow: /
+Sitemap: https://blog.dend.ro/sitemap.xml
