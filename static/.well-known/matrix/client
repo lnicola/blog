@@ -1,5 +1,8 @@
 {
     "m.homeserver": {
         "base_url": "https://conduit.dend.ro"
+    },
+    "org.matrix.msc3575.proxy": {
+        "url": "https://conduit.dend.ro"
     }
 }
