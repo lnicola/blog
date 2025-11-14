@@ -25,6 +25,16 @@ jobs:
       - name: Build
         run: ./zola build
 
+      - name: Download talks
+        run: |
+          set -e
+          mkdir -p public/content/talks/omniopencon2025
+          curl -L https://github.com/lnicola/omniopencon2025/archive/refs/heads/master.zip -o master.zip
+          unzip master.zip
+          mv omniopencon2025-master/* public/content/talks/omniopencon2025/
+          rm master.zip
+          rm -r omniopencon2025-master
+
       - name: Publish
         uses: peaceiris/actions-gh-pages@v4
         with:
