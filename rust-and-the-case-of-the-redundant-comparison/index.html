@@ -1,0 +1,229 @@
+<!doctype html><html lang=en><head><meta charset=utf-8><meta content="width=device-width,initial-scale=1.0,maximum-scale=1,viewport-fit=cover" name=viewport><title>Rust and the Case of the Redundant Comparison</title><link href=/print.css media=print rel=stylesheet><link href=/poole.css rel=stylesheet><link href=/hyde.css rel=stylesheet><link href=https://blog.dend.ro/atom.xml rel=alternate title=RSS type=application/atom+xml><link href=https://mapstodon.space/@lnicola rel=me><body><div class=sidebar><div class="container sidebar-sticky"><div class=sidebar-about><a href=https://blog.dend.ro/><h1></h1></a></div><ul class=sidebar-nav><li class=sidebar-nav-item><a href=/>Home</a><li class=sidebar-nav-item><a href=/content/talks/>Talks</a><li class=sidebar-nav-item><a href=/content/blogroll/>Blogroll</a><li class=sidebar-nav-item><a href=/content/acknowledgements/>Acknowledgements</a><li class=sidebar-nav-item><a href=https://www.buymeacoffee.com/lnicolaq>Buy me a ☕</a></ul></div></div><div class="content container"><div class=post><h1 class=post-title>Rust and the Case of the Redundant Comparison</h1><span class=post-date>2018-08-04</span><p>A couple of days ago I landed my <a href=https://github.com/rust-lang/rust/pull/52908>second pull request</a> in the <a href=https://www.rust-lang.org/>Rust Programming Language</a> <a href=https://github.com/rust-lang/rust/>repository</a>. This is the story of how that went.<p>This post is inspired by <a href=https://llogiq.github.io/2018/08/04/improve.html>other</a> <a href=https://blog.mozilla.org/nnethercote/>posts</a> about improving the Rust compiler.<p><strong>TL;DR:</strong> I made a 20 lines PR to the Rust standard library. If you're so inclined, you should try doing the same.<h2 id=the-chase-after-unsafe-code>The chase after unsafe code</h2><p>There's been quite a bit of <a href=https://www.reddit.com/r/rust/comments/8s7gei/unsafe_rust_in_actixweb_other_libraries/>noise</a> recently about the amount of unsafe code in the <a href=https://actix.rs/><code>actix-web</code></a> framework. I won't discuss the merits of grabbing the pitchforks as soon as someone writes code of a buggy and unidiomatic nature <sup class=footnote-reference><a href=#pitchforks>1</a></sup>. But my first encounter with <code>unsafe</code> in Rust was a hard to reproduce, Windows-only, crashing bug in a crate. On that code path there was a single, seemingly innocuous, <code>unsafe</code> line. It took me and the crate's author maybe half an hour to find it, with the <code>unsafe</code> arrow pointing at it the whole time <sup class=footnote-reference><a href=#unsafe>2</a></sup>.<p>To be fair, <code>actix-web</code> now lost a large chunk of its unsafe code, although it's still not quite my cup of tea. So I downloaded the source of <a href=https://github.com/hyperium/hyper><code>hyper</code></a>, another popular, if much lower-level, HTTP library. Unfortunately (‽), it had relatively few <code>unsafe</code> blocks, many of them in test code. But one idiom caught my eye:<pre class=language-rust data-lang=rust style=color:#c0c5ce;background-color:#2b303b><code class=language-rust data-lang=rust><span>#[</span><span style=color:#bf616a>derive</span><span>(Clone)]
+</span><span style=color:#b48ead>pub struct </span><span>Cursor&lt;T> {
+</span><span>    </span><span style=color:#bf616a>bytes</span><span>: T,
+</span><span>    </span><span style=color:#bf616a>pos</span><span>: </span><span style=color:#b48ead>usize</span><span>,
+</span><span>}
+</span><span>
+</span><span style=color:#b48ead>impl </span><span>Cursor&lt;Vec&lt;</span><span style=color:#b48ead>u8</span><span>>> {
+</span><span>    </span><span style=color:#b48ead>fn </span><span style=color:#8fa1b3>reset</span><span>(&</span><span style=color:#b48ead>mut </span><span style=color:#bf616a>self</span><span>) {
+</span><span>        </span><span style=color:#bf616a>self</span><span>.pos = </span><span style=color:#d08770>0</span><span>;
+</span><span>        </span><span style=color:#b48ead>unsafe </span><span>{
+</span><span>            </span><span style=color:#bf616a>self</span><span>.bytes.</span><span style=color:#96b5b4>set_len</span><span>(</span><span style=color:#d08770>0</span><span>);
+</span><span>        }
+</span><span>    }
+</span><span>}
+</span></code></pre><p>The code is trying to clear a <code>Vec</code> by forcefully setting its length to <code>0</code>. That's a bad idea if the elements of the vector implement <code>Drop</code>, because they won't be destroyed. Fortunately, <code>hyper</code> only did that for <code>u8</code> values, but the whole thing seemed unnecessary.<p>I almost sent a PR to nuke them, but the crate author said that <code>set_len(0)</code> might be faster than <code>clear()</code>. That couldn't be true, since <code>clear</code> has nothing to do besides setting the length, so I tried to prove it:<pre class=language-rust data-lang=rust style=color:#c0c5ce;background-color:#2b303b><code class=language-rust data-lang=rust><span>#[</span><span style=color:#bf616a>no_mangle</span><span>]
+</span><span style=color:#b48ead>pub extern fn </span><span style=color:#8fa1b3>test_set_len</span><span>(</span><span style=color:#bf616a>x</span><span>: &</span><span style=color:#b48ead>mut </span><span>Vec&lt;</span><span style=color:#b48ead>u8</span><span>>) {
+</span><span>    </span><span style=color:#b48ead>unsafe </span><span>{ x.</span><span style=color:#96b5b4>set_len</span><span>(</span><span style=color:#d08770>0</span><span>); }
+</span><span>}
+</span><span>
+</span><span>#[</span><span style=color:#bf616a>no_mangle</span><span>]
+</span><span style=color:#b48ead>pub extern fn </span><span style=color:#8fa1b3>test_clear</span><span>(</span><span style=color:#bf616a>x</span><span>: &</span><span style=color:#b48ead>mut </span><span>Vec&lt;</span><span style=color:#b48ead>u8</span><span>>) {
+</span><span>    x.</span><span style=color:#96b5b4>clear</span><span>();
+</span><span>}
+</span></code></pre><p>But I was surprised to see this in the generated code:<pre class=language-asm data-lang=asm style=color:#c0c5ce;background-color:#2b303b><code class=language-asm data-lang=asm><span style=color:#8fa1b3>test_set_len:
+</span><span style=color:#8fa1b3>    </span><span style=color:#b48ead>movq    </span><span style=color:#96b5b4>$</span><span style=color:#d08770>0</span><span>, </span><span style=color:#d08770>16</span><span style=color:#8fa1b3>(%</span><span style=color:#bf616a>rdi</span><span style=color:#8fa1b3>)
+</span><span style=color:#8fa1b3>    retq
+</span><span>
+</span><span style=color:#8fa1b3>test_clear:
+</span><span style=color:#8fa1b3>    cmpq    </span><span style=color:#96b5b4>$</span><span style=color:#d08770>0</span><span>, </span><span style=color:#d08770>16</span><span style=color:#8fa1b3>(%</span><span style=color:#bf616a>rdi</span><span style=color:#8fa1b3>)
+</span><span style=color:#8fa1b3>    </span><span style=color:#b48ead>je      </span><span style=color:#8fa1b3>.LBB4_2
+</span><span style=color:#8fa1b3>    </span><span style=color:#b48ead>movq    </span><span style=color:#96b5b4>$</span><span style=color:#d08770>0</span><span>, </span><span style=color:#d08770>16</span><span style=color:#8fa1b3>(%</span><span style=color:#bf616a>rdi</span><span style=color:#8fa1b3>)
+</span><span>
+</span><span style=color:#8fa1b3>.LBB4_2:
+</span><span style=color:#8fa1b3>    retq
+</span></code></pre><p>If you're not used to reading assembly, the <code>set_len</code> code sets the vector's length to zero (<code>movq</code>) and returns. <code>clear</code>, however, compares the current length with <code>0</code>. If it's empty, the code jumps to the end of the function (<code>je</code> stands for "jump if equal"). Otherwise, the length gets set to <code>0</code> and the function returns. That's a useless comparison, the same as:<pre class=language-rust data-lang=rust style=color:#c0c5ce;background-color:#2b303b><code class=language-rust data-lang=rust><span style=color:#b48ead>if</span><span> len != </span><span style=color:#d08770>0 </span><span>{
+</span><span>    len = </span><span style=color:#d08770>0</span><span>;
+</span><span>}
+</span></code></pre><p>LLVM is pretty good, so it's a bit surprising to see it generate this <sup class=footnote-reference><a href=#peepholes>3</a></sup>. In its favour, the debug version is much larger, so the optimizer is still doing a great job.<p>Do the extra two instructions matter in practice? I didn't benchmark, but my intuition says no <sup class=footnote-reference><a href=#intuition>4</a></sup>, and the <code>set_len(0)</code> calls were mostly in test code. However, the crate's author seemed unconvinced and I didn't want to be the one who slowed down <code>hyper</code>.<h2 id=down-the-rabbit-hole>Down the rabbit hole</h2><p>Disappointed by this turn of events, I searched for the implementation of <code>clear</code>:<pre class=language-rust data-lang=rust style=color:#c0c5ce;background-color:#2b303b><code class=language-rust data-lang=rust><span>#[</span><span style=color:#bf616a>inline</span><span>]
+</span><span style=color:#b48ead>pub fn </span><span style=color:#8fa1b3>clear</span><span>(&</span><span style=color:#b48ead>mut </span><span style=color:#bf616a>self</span><span>) {
+</span><span>    </span><span style=color:#bf616a>self</span><span>.</span><span style=color:#96b5b4>truncate</span><span>(</span><span style=color:#d08770>0</span><span>)
+</span><span>}
+</span><span>
+</span><span style=color:#b48ead>pub fn </span><span style=color:#8fa1b3>truncate</span><span>(&</span><span style=color:#b48ead>mut </span><span style=color:#bf616a>self</span><span>, </span><span style=color:#bf616a>len</span><span>: </span><span style=color:#b48ead>usize</span><span>) {
+</span><span>    </span><span style=color:#b48ead>unsafe </span><span>{
+</span><span>        </span><span style=color:#65737e>// drop any extra elements
+</span><span>        </span><span style=color:#b48ead>while</span><span> len &lt; </span><span style=color:#bf616a>self</span><span>.len {
+</span><span>            </span><span style=color:#65737e>// decrement len before the drop_in_place(), so a panic on Drop
+</span><span>            </span><span style=color:#65737e>// doesn't re-drop the just-failed value.
+</span><span>            </span><span style=color:#bf616a>self</span><span>.len -= </span><span style=color:#d08770>1</span><span>;
+</span><span>            </span><span style=color:#b48ead>let</span><span> len = </span><span style=color:#bf616a>self</span><span>.len;
+</span><span>            ptr::drop_in_place(</span><span style=color:#bf616a>self</span><span>.</span><span style=color:#96b5b4>get_unchecked_mut</span><span>(len));
+</span><span>        }
+</span><span>    }
+</span><span>}
+</span></code></pre><p>The code is a bit convoluted, because of the reason described in the comment. <code>drop</code> can panic <sup class=footnote-reference><a href=#panic>5</a></sup>, so the function must decrement the length before dropping an element. In case of a panic, the last element of the <code>Vec</code> will be a valid one.<p>A quick test on the <a href=https://play.rust-lang.org/>Playground</a> shows that if we set the length at the end, the compiler generates the code that we expect:<pre class=language-rust data-lang=rust style=color:#c0c5ce;background-color:#2b303b><code class=language-rust data-lang=rust><span>#[</span><span style=color:#bf616a>inline</span><span>(never)]
+</span><span style=color:#b48ead>fn </span><span style=color:#8fa1b3>truncate_wrong_dont_use</span><span>&lt;T>(</span><span style=color:#bf616a>x</span><span>: &</span><span style=color:#b48ead>mut </span><span>Vec&lt;T>, </span><span style=color:#bf616a>len</span><span>: </span><span style=color:#b48ead>usize</span><span>) {
+</span><span>    </span><span style=color:#b48ead>unsafe </span><span>{
+</span><span>        </span><span style=color:#b48ead>let mut</span><span> last = x.</span><span style=color:#96b5b4>len</span><span>();
+</span><span>        </span><span style=color:#b48ead>while</span><span> len &lt; last {
+</span><span>            last -= </span><span style=color:#d08770>1</span><span>;
+</span><span>            ptr::drop_in_place(x.</span><span style=color:#96b5b4>get_unchecked_mut</span><span>(last));
+</span><span>        }
+</span><span>        x.</span><span style=color:#96b5b4>set_len</span><span>(len);
+</span><span>    }
+</span><span>}
+</span></code></pre><pre class=language-asm data-lang=asm style=color:#c0c5ce;background-color:#2b303b><code class=language-asm data-lang=asm><span style=color:#8fa1b3>playground::truncate_wrong_dont_use:
+</span><span style=color:#8fa1b3>    </span><span style=color:#b48ead>movq    </span><span style=color:#96b5b4>$</span><span style=color:#d08770>0</span><span>, </span><span style=color:#d08770>16</span><span style=color:#8fa1b3>(%</span><span style=color:#bf616a>rdi</span><span style=color:#8fa1b3>)
+</span><span style=color:#8fa1b3>    retq
+</span></code></pre><p>But that won't do. At this point I filed an issue in the compiler repository, then dropped [sic!] it, waiting for someone else to come up with a fix. Unfortunately, nobody did, so I gave it a little more thought.<p>If we could run some code at the end, even on panics, we might be able to set the length from there. And we can, with a helper struct which applies the change when dropped. It sounds harder for the compiler, but there's only one way to check. And if we scroll around the file, we find this:<pre class=language-rust data-lang=rust style=color:#c0c5ce;background-color:#2b303b><code class=language-rust data-lang=rust><span style=color:#65737e>// Set the length of the vec when the `SetLenOnDrop` value goes out of scope.
+</span><span style=color:#65737e>//
+</span><span style=color:#65737e>// The idea is: The length field in SetLenOnDrop is a local variable
+</span><span style=color:#65737e>// that the optimizer will see does not alias with any stores through the Vec's data
+</span><span style=color:#65737e>// pointer. This is a workaround for alias analysis issue #32155
+</span><span style=color:#b48ead>struct </span><span>SetLenOnDrop&lt;</span><span style=color:#b48ead>'a</span><span>> {
+</span><span>    </span><span style=color:#bf616a>len</span><span>: &</span><span style=color:#b48ead>'a mut usize</span><span>,
+</span><span>    </span><span style=color:#bf616a>local_len</span><span>: </span><span style=color:#b48ead>usize</span><span>,
+</span><span>}
+</span><span>
+</span><span style=color:#b48ead>impl</span><span>&lt;</span><span style=color:#b48ead>'a</span><span>> SetLenOnDrop&lt;</span><span style=color:#b48ead>'a</span><span>> {
+</span><span>    #[</span><span style=color:#bf616a>inline</span><span>]
+</span><span>    </span><span style=color:#b48ead>fn </span><span style=color:#8fa1b3>new</span><span>(</span><span style=color:#bf616a>len</span><span>: &</span><span style=color:#b48ead>'a mut usize</span><span>) -> </span><span style=color:#b48ead>Self </span><span>{
+</span><span>        SetLenOnDrop { local_len: *len, len: len }
+</span><span>    }
+</span><span>
+</span><span>    #[</span><span style=color:#bf616a>inline</span><span>]
+</span><span>    </span><span style=color:#b48ead>fn </span><span style=color:#8fa1b3>increment_len</span><span>(&</span><span style=color:#b48ead>mut </span><span style=color:#bf616a>self</span><span>, </span><span style=color:#bf616a>increment</span><span>: </span><span style=color:#b48ead>usize</span><span>) {
+</span><span>        </span><span style=color:#bf616a>self</span><span>.local_len += increment;
+</span><span>    }
+</span><span>}
+</span><span>
+</span><span style=color:#b48ead>impl</span><span>&lt;</span><span style=color:#b48ead>'a</span><span>> Drop </span><span style=color:#b48ead>for </span><span>SetLenOnDrop&lt;</span><span style=color:#b48ead>'a</span><span>> {
+</span><span>    #[</span><span style=color:#bf616a>inline</span><span>]
+</span><span>    </span><span style=color:#b48ead>fn </span><span style=color:#8fa1b3>drop</span><span>(&</span><span style=color:#b48ead>mut </span><span style=color:#bf616a>self</span><span>) {
+</span><span>        *</span><span style=color:#bf616a>self</span><span>.len = </span><span style=color:#bf616a>self</span><span>.local_len;
+</span><span>    }
+</span><span>}
+</span></code></pre><p>The comment indicates that LLVM gets confused into thinking that modifying the vector's data could change its length. And that sounds exactly like our issue.<h2 id=compiling-a-compiler>Compiling a compiler</h2><p>I cloned the compiler repository and skimmed the <a href=https://github.com/rust-lang/rust/blob/master/CONTRIBUTING.md>contributing guide</a>. I copied the sample configuration file and changed a couple of lines:<pre class=language-diff data-lang=diff style=color:#c0c5ce;background-color:#2b303b><code class=language-diff data-lang=diff><span>diff --git 1/config.toml.example 2/config.toml
+</span><span>index 9907341633..477c558545 100644
+</span><span>--- 1/config.toml.example
+</span><span>+++ 2/config.toml
+</span><span>@@ -104,11 +104,11 @@
+</span><span>
+</span><span> # Instead of downloading the src/stage0.txt version of Cargo specified, use
+</span><span> # this Cargo binary instead to build all Rust code
+</span><span style=color:#bf616a>-#cargo = "/path/to/bin/cargo"
+</span><span style=color:#a3be8c>+cargo = "/usr/bin/cargo"
+</span><span>
+</span><span> # Instead of downloading the src/stage0.txt version of the compiler
+</span><span> # specified, use this rustc binary instead as the stage0 snapshot compiler.
+</span><span style=color:#bf616a>-#rustc = "/path/to/bin/rustc"
+</span><span style=color:#a3be8c>+rustc = "/usr/bin/rustc"
+</span><span>
+</span><span> # Flag to specify whether any documentation is built. If false, rustdoc and
+</span><span> # friends will still be compiled but they will not be used to generate any
+</span><span>@@ -250,6 +250,7 @@
+</span><span> # means "the number of cores on this machine", and 1+ is passed through to the
+</span><span> # compiler.
+</span><span> #codegen-units = 1
+</span><span style=color:#a3be8c>+codegen-units = 0
+</span><span>
+</span><span> # Whether or not debug assertions are enabled for the compiler and standard
+</span><span> # library. Also enables compilation of debug! and trace! logging macros.
+</span></code></pre><p>I didn't want to download another compiler, so I filled in the paths to mine. The <code>codegen-units</code> setting makes the compiler produce code from multiple threads at once. The trade-off involved is that the generated code is slower. Initially, I went for an unoptimized build (which the comments advise against), but ended up cancelling it.<p>The way compilers are usually built, there are a couple of <em>stages</em>. Stage 0 is an existing compiler, stage 1 is the compiler we are working on — built by the stage 0 one, and stage 2 is our version built by itself. If we make the compiler generate faster — or more buggy — code, stage 1 won't be affected, but stage 2 will. I wasn't planning to change anything in the compiler, so stage 1 was enough for me.<p>Apparently, there is a small complication: some stage 0 artefacts like <code>libstd</code> will still be rebuilt, triggering a cascade of rebuilds that I didn't want. After asking around on IRC, I found the command line I wanted:<pre class=language-bash data-lang=bash style=color:#c0c5ce;background-color:#2b303b><code class=language-bash data-lang=bash><span style=color:#bf616a>./x.py --keep-stage</span><span> 0</span><span style=color:#bf616a> --stage</span><span> 1
+</span></code></pre><p>This is all described in the <a href=https://github.com/rust-lang/rust/blob/master/src/bootstrap/README.md>bootstrapping documentation</a>, which I completely missed. I also tried incremental builds (via <code>config.toml</code>, not the command line — not sure if it matters), which didn't work out too well for me: an incremental build after touching a single file was just a tad faster than a non-incremental one including LLVM. But there may have been something wrong with my build files, so it's still worth trying.<h2 id=banishing-a-read>Banishing a read</h2><p>There was no need to do an initial build, but I wanted to check that everything worked. That took about 40 minutes on my laptop. I then added the missing method to the <code>SetLenOnDrop</code> struct:<pre class=language-rust data-lang=rust style=color:#c0c5ce;background-color:#2b303b><code class=language-rust data-lang=rust><span>#[</span><span style=color:#bf616a>inline</span><span>]
+</span><span style=color:#b48ead>fn </span><span style=color:#8fa1b3>decrement_len</span><span>(&</span><span style=color:#b48ead>mut </span><span style=color:#bf616a>self</span><span>, </span><span style=color:#bf616a>decrement</span><span>: </span><span style=color:#b48ead>usize</span><span>) {
+</span><span>    </span><span style=color:#bf616a>self</span><span>.local_len -= decrement;
+</span><span>}
+</span></code></pre><p><code>truncate</code> took a couple of tries, but I ended up with the following:<pre class=language-rust data-lang=rust style=color:#c0c5ce;background-color:#2b303b><code class=language-rust data-lang=rust><span style=color:#b48ead>pub fn </span><span style=color:#8fa1b3>truncate</span><span>(&</span><span style=color:#b48ead>mut </span><span style=color:#bf616a>self</span><span>, </span><span style=color:#bf616a>len</span><span>: </span><span style=color:#b48ead>usize</span><span>) {
+</span><span>    </span><span style=color:#b48ead>let</span><span> current_len = </span><span style=color:#bf616a>self</span><span>.len;
+</span><span>    </span><span style=color:#b48ead>unsafe </span><span>{
+</span><span>        </span><span style=color:#b48ead>let mut</span><span> ptr = </span><span style=color:#bf616a>self</span><span>.</span><span style=color:#96b5b4>as_mut_ptr</span><span>().</span><span style=color:#96b5b4>offset</span><span>(</span><span style=color:#bf616a>self</span><span>.len as </span><span style=color:#b48ead>isize</span><span>);
+</span><span>        </span><span style=color:#65737e>// Set the final length at the end, keeping in mind that
+</span><span>        </span><span style=color:#65737e>// dropping an element might panic. Works around a missed
+</span><span>        </span><span style=color:#65737e>// optimization, as seen in the following issue:
+</span><span>        </span><span style=color:#65737e>// https://github.com/rust-lang/rust/issues/51802
+</span><span>        </span><span style=color:#b48ead>let mut</span><span> local_len = SetLenOnDrop::new(&</span><span style=color:#b48ead>mut </span><span style=color:#bf616a>self</span><span>.len);
+</span><span>
+</span><span>        </span><span style=color:#65737e>// drop any extra elements
+</span><span>        </span><span style=color:#b48ead>for </span><span>_ in len..current_len {
+</span><span>            local_len.</span><span style=color:#96b5b4>decrement_len</span><span>(</span><span style=color:#d08770>1</span><span>);
+</span><span>            ptr = ptr.</span><span style=color:#96b5b4>offset</span><span>(-</span><span style=color:#d08770>1</span><span>);
+</span><span>            ptr::drop_in_place(ptr);
+</span><span>        }
+</span><span>    }
+</span><span>}
+</span></code></pre><p>The code walks a pointer backwards, destroying each element. Meanwhile, the helper struct is also keeping track of the remaining length. The code does seem more complex (it's counting twice), but does it work? Let's check some assembly.<pre class=language-rust data-lang=rust style=color:#c0c5ce;background-color:#2b303b><code class=language-rust data-lang=rust><span>#[</span><span style=color:#bf616a>no_mangle</span><span>]
+</span><span style=color:#b48ead>pub extern fn </span><span style=color:#8fa1b3>foo</span><span>(</span><span style=color:#bf616a>x</span><span>: &</span><span style=color:#b48ead>mut </span><span>Vec&lt;</span><span style=color:#b48ead>u8</span><span>>) {
+</span><span>    x.</span><span style=color:#96b5b4>clear</span><span>();
+</span><span>}
+</span><span>
+</span><span>#[</span><span style=color:#bf616a>no_mangle</span><span>]
+</span><span style=color:#b48ead>pub extern fn </span><span style=color:#8fa1b3>bar</span><span>(</span><span style=color:#bf616a>x</span><span>: &</span><span style=color:#b48ead>mut </span><span>Vec&lt;</span><span style=color:#b48ead>u8</span><span>>) {
+</span><span>    x.</span><span style=color:#96b5b4>truncate</span><span>(</span><span style=color:#d08770>5</span><span>);
+</span><span>}
+</span><span>
+</span><span>#[</span><span style=color:#bf616a>no_mangle</span><span>]
+</span><span style=color:#b48ead>pub extern fn </span><span style=color:#8fa1b3>baz</span><span>(</span><span style=color:#bf616a>x</span><span>: &</span><span style=color:#b48ead>mut </span><span>Vec&lt;</span><span style=color:#b48ead>u8</span><span>>, </span><span style=color:#bf616a>n</span><span>: </span><span style=color:#b48ead>usize</span><span>) {
+</span><span>    x.</span><span style=color:#96b5b4>truncate</span><span>(n);
+</span><span>}
+</span></code></pre><p>The unpatched compiler version shows what we've already seen:<pre class=language-asm data-lang=asm style=color:#c0c5ce;background-color:#2b303b><code class=language-asm data-lang=asm><span style=color:#8fa1b3>00000000000460a0 &lt;foo>:
+</span><span style=color:#8fa1b3>   460a0:       </span><span style=color:#d08770>48 83 </span><span style=color:#8fa1b3>7f </span><span style=color:#d08770>10 00          </span><span style=color:#8fa1b3>cmpq   </span><span style=color:#96b5b4>$</span><span style=color:#d08770>0x0</span><span>,</span><span style=color:#d08770>0x10</span><span style=color:#8fa1b3>(%</span><span style=color:#bf616a>rdi</span><span style=color:#8fa1b3>)
+</span><span style=color:#8fa1b3>   460a5:       </span><span style=color:#d08770>74 08                   </span><span style=color:#b48ead>je     </span><span style=color:#8fa1b3>460af &lt;foo</span><span>+</span><span style=color:#d08770>0xf</span><span style=color:#8fa1b3>>
+</span><span style=color:#8fa1b3>   460a7:       </span><span style=color:#d08770>48 </span><span style=color:#8fa1b3>c7 </span><span style=color:#d08770>47 10 00 00 00    </span><span style=color:#b48ead>movq   </span><span style=color:#96b5b4>$</span><span style=color:#d08770>0x0</span><span>,</span><span style=color:#d08770>0x10</span><span style=color:#8fa1b3>(%</span><span style=color:#bf616a>rdi</span><span style=color:#8fa1b3>)
+</span><span style=color:#8fa1b3>   460ae:       </span><span style=color:#d08770>00
+</span><span style=color:#8fa1b3>   460af:       c3                      retq
+</span><span>
+</span><span style=color:#8fa1b3>00000000000460b0 &lt;bar>:
+</span><span style=color:#8fa1b3>   460b0:       </span><span style=color:#d08770>48 83 </span><span style=color:#8fa1b3>7f </span><span style=color:#d08770>10 06          </span><span style=color:#8fa1b3>cmpq   </span><span style=color:#96b5b4>$</span><span style=color:#d08770>0x6</span><span>,</span><span style=color:#d08770>0x10</span><span style=color:#8fa1b3>(%</span><span style=color:#bf616a>rdi</span><span style=color:#8fa1b3>)
+</span><span style=color:#8fa1b3>   460b5:       </span><span style=color:#d08770>72 08                   </span><span style=color:#b48ead>jb     </span><span style=color:#8fa1b3>460bf &lt;bar</span><span>+</span><span style=color:#d08770>0xf</span><span style=color:#8fa1b3>>
+</span><span style=color:#8fa1b3>   460b7:       </span><span style=color:#d08770>48 </span><span style=color:#8fa1b3>c7 </span><span style=color:#d08770>47 10 05 00 00    </span><span style=color:#b48ead>movq   </span><span style=color:#96b5b4>$</span><span style=color:#d08770>0x5</span><span>,</span><span style=color:#d08770>0x10</span><span style=color:#8fa1b3>(%</span><span style=color:#bf616a>rdi</span><span style=color:#8fa1b3>)
+</span><span style=color:#8fa1b3>   460be:       </span><span style=color:#d08770>00
+</span><span style=color:#8fa1b3>   460bf:       c3                      retq
+</span><span>
+</span><span style=color:#8fa1b3>00000000000460c0 &lt;baz>:
+</span><span style=color:#8fa1b3>   460c0:       </span><span style=color:#d08770>48 39 77 10             </span><span style=color:#b48ead>cmp    </span><span style=color:#8fa1b3>%</span><span style=color:#bf616a>rsi</span><span>,</span><span style=color:#d08770>0x10</span><span style=color:#8fa1b3>(%</span><span style=color:#bf616a>rdi</span><span style=color:#8fa1b3>)
+</span><span style=color:#8fa1b3>   460c4:       </span><span style=color:#d08770>76 04                   </span><span style=color:#b48ead>jbe    </span><span style=color:#8fa1b3>460ca &lt;baz</span><span>+</span><span style=color:#d08770>0xa</span><span style=color:#8fa1b3>>
+</span><span style=color:#8fa1b3>   460c6:       </span><span style=color:#d08770>48 89 77 10             </span><span style=color:#b48ead>mov    </span><span style=color:#8fa1b3>%</span><span style=color:#bf616a>rsi</span><span>,</span><span style=color:#d08770>0x10</span><span style=color:#8fa1b3>(%</span><span style=color:#bf616a>rdi</span><span style=color:#8fa1b3>)
+</span><span style=color:#8fa1b3>   460ca:       c3                      retq
+</span><span style=color:#8fa1b3>   460cb:       0f 1f </span><span style=color:#d08770>44 00 00          </span><span style=color:#8fa1b3>nopl   </span><span style=color:#d08770>0x0</span><span style=color:#8fa1b3>(%</span><span style=color:#bf616a>rax</span><span>,</span><span style=color:#8fa1b3>%</span><span style=color:#bf616a>rax</span><span>,</span><span style=color:#d08770>1</span><span style=color:#8fa1b3>)
+</span></code></pre><p>How about the patched one?<pre class=language-asm data-lang=asm style=color:#c0c5ce;background-color:#2b303b><code class=language-asm data-lang=asm><span style=color:#8fa1b3>0000000000084d10 &lt;foo>:
+</span><span style=color:#8fa1b3>   84d10:       </span><span style=color:#d08770>48 </span><span style=color:#8fa1b3>c7 </span><span style=color:#d08770>47 10 00 00 00    </span><span style=color:#b48ead>movq   </span><span style=color:#96b5b4>$</span><span style=color:#d08770>0x0</span><span>,</span><span style=color:#d08770>0x10</span><span style=color:#8fa1b3>(%</span><span style=color:#bf616a>rdi</span><span style=color:#8fa1b3>)
+</span><span style=color:#8fa1b3>   84d17:       </span><span style=color:#d08770>00
+</span><span style=color:#8fa1b3>   84d18:       c3                      retq
+</span><span style=color:#8fa1b3>   84d19:       0f 1f </span><span style=color:#d08770>80 00 00 00 00    </span><span style=color:#8fa1b3>nopl   </span><span style=color:#d08770>0x0</span><span style=color:#8fa1b3>(%</span><span style=color:#bf616a>rax</span><span style=color:#8fa1b3>)
+</span><span>
+</span><span style=color:#8fa1b3>0000000000084d20 &lt;bar>:
+</span><span style=color:#8fa1b3>   84d20:       </span><span style=color:#d08770>48 </span><span style=color:#8fa1b3>8b </span><span style=color:#d08770>47 10             </span><span style=color:#b48ead>mov    </span><span style=color:#d08770>0x10</span><span style=color:#8fa1b3>(%</span><span style=color:#bf616a>rdi</span><span style=color:#8fa1b3>)</span><span>,</span><span style=color:#8fa1b3>%</span><span style=color:#bf616a>rax
+</span><span style=color:#8fa1b3>   84d24:       </span><span style=color:#d08770>48 83 </span><span style=color:#8fa1b3>f8 </span><span style=color:#d08770>05             </span><span style=color:#b48ead>cmp    </span><span style=color:#96b5b4>$</span><span style=color:#d08770>0x5</span><span>,</span><span style=color:#8fa1b3>%</span><span style=color:#bf616a>rax
+</span><span style=color:#8fa1b3>   84d28:       b9 </span><span style=color:#d08770>05 00 00 00          </span><span style=color:#b48ead>mov    </span><span style=color:#96b5b4>$</span><span style=color:#d08770>0x5</span><span>,</span><span style=color:#8fa1b3>%</span><span style=color:#bf616a>ecx
+</span><span style=color:#8fa1b3>   84d2d:       </span><span style=color:#d08770>48 </span><span style=color:#8fa1b3>0f </span><span style=color:#d08770>42 </span><span style=color:#8fa1b3>c8             </span><span style=color:#b48ead>cmovb  </span><span style=color:#8fa1b3>%</span><span style=color:#bf616a>rax</span><span>,</span><span style=color:#8fa1b3>%</span><span style=color:#bf616a>rcx
+</span><span style=color:#8fa1b3>   84d31:       </span><span style=color:#d08770>48 89 </span><span style=color:#8fa1b3>4f </span><span style=color:#d08770>10             </span><span style=color:#b48ead>mov    </span><span style=color:#8fa1b3>%</span><span style=color:#bf616a>rcx</span><span>,</span><span style=color:#d08770>0x10</span><span style=color:#8fa1b3>(%</span><span style=color:#bf616a>rdi</span><span style=color:#8fa1b3>)
+</span><span style=color:#8fa1b3>   84d35:       c3                      retq
+</span><span style=color:#8fa1b3>   84d36:       </span><span style=color:#d08770>66 </span><span style=color:#8fa1b3>2e 0f 1f </span><span style=color:#d08770>84 00 00    </span><span style=color:#8fa1b3>nopw   %</span><span style=color:#bf616a>cs</span><span style=color:#8fa1b3>:</span><span style=color:#d08770>0x0</span><span style=color:#8fa1b3>(%</span><span style=color:#bf616a>rax</span><span>,</span><span style=color:#8fa1b3>%</span><span style=color:#bf616a>rax</span><span>,</span><span style=color:#d08770>1</span><span style=color:#8fa1b3>)
+</span><span style=color:#8fa1b3>   84d3d:       </span><span style=color:#d08770>00 00 00
+</span><span>
+</span><span style=color:#8fa1b3>0000000000084d40 &lt;baz>:
+</span><span style=color:#8fa1b3>   84d40:       </span><span style=color:#d08770>48 </span><span style=color:#8fa1b3>8b </span><span style=color:#d08770>47 10             </span><span style=color:#b48ead>mov    </span><span style=color:#d08770>0x10</span><span style=color:#8fa1b3>(%</span><span style=color:#bf616a>rdi</span><span style=color:#8fa1b3>)</span><span>,</span><span style=color:#8fa1b3>%</span><span style=color:#bf616a>rax
+</span><span style=color:#8fa1b3>   84d44:       </span><span style=color:#d08770>48 39 </span><span style=color:#8fa1b3>f0                </span><span style=color:#b48ead>cmp    </span><span style=color:#8fa1b3>%</span><span style=color:#bf616a>rsi</span><span>,</span><span style=color:#8fa1b3>%</span><span style=color:#bf616a>rax
+</span><span style=color:#8fa1b3>   84d47:       </span><span style=color:#d08770>48 </span><span style=color:#8fa1b3>0f </span><span style=color:#d08770>47 </span><span style=color:#8fa1b3>c6             </span><span style=color:#b48ead>cmova  </span><span style=color:#8fa1b3>%</span><span style=color:#bf616a>rsi</span><span>,</span><span style=color:#8fa1b3>%</span><span style=color:#bf616a>rax
+</span><span style=color:#8fa1b3>   84d4b:       </span><span style=color:#d08770>48 89 47 10             </span><span style=color:#b48ead>mov    </span><span style=color:#8fa1b3>%</span><span style=color:#bf616a>rax</span><span>,</span><span style=color:#d08770>0x10</span><span style=color:#8fa1b3>(%</span><span style=color:#bf616a>rdi</span><span style=color:#8fa1b3>)
+</span><span style=color:#8fa1b3>   84d4f:       c3                      retq
+</span></code></pre><p>The <code>clear()</code> call works out nicely, it's what we wanted to see (<code>nopl</code> is a "no-operation" instruction, used to align the functions) <sup class=footnote-reference><a href=#zero>6</a></sup>. <code>truncate(n)</code> also seems fine: it takes the minimum of the current and new length, then writes it back. The <code>truncate(5)</code> variant does the same thing, but loads <code>5</code> into the <code>ecx</code> register in an awkward way: <code>mov %rax, %rcx</code> might have been better. Alas, it came out pretty well.<p>I also tested with a <code>Drop</code> type (<code>String</code>). I didn't try to make sense of the assembly output, but the new code was similar. You can see it <a href=https://github.com/rust-lang/rust/pull/52908#issue-205157661>on GitHub</a>, if you're curious.<h2 id=wrapping-it-up>Wrapping it up</h2><p>At this point I committed the code and opened a pull request on GitHub. I got assigned a reviewer who reviewed my code in less than two hours. He asked me to add a codegen test to make sure the compiler doesn't revert to the worse code sequence in the future. I'd never written one, but after looking at the existing ones, I put this up:<pre class=language-rust data-lang=rust style=color:#c0c5ce;background-color:#2b303b><code class=language-rust data-lang=rust><span style=color:#65737e>// compile-flags: -O
+</span><span>
+</span><span>#![</span><span style=color:#bf616a>crate_type </span><span>= "</span><span style=color:#a3be8c>lib</span><span>"]
+</span><span>
+</span><span style=color:#65737e>// CHECK-LABEL: @vec_clear
+</span><span>#[</span><span style=color:#bf616a>no_mangle</span><span>]
+</span><span style=color:#b48ead>pub fn </span><span style=color:#8fa1b3>vec_clear</span><span>(</span><span style=color:#bf616a>x</span><span>: &</span><span style=color:#b48ead>mut </span><span>Vec&lt;</span><span style=color:#b48ead>u32</span><span>>) {
+</span><span>    </span><span style=color:#65737e>// CHECK-NOT: load
+</span><span>    </span><span style=color:#65737e>// CHECK-NOT: icmp
+</span><span>    x.</span><span style=color:#96b5b4>clear</span><span>()
+</span><span>}
+</span></code></pre><p>The Rust compiler produces what's called LLVM IR as output. It's similar to, but more portable and higher-level than assembly language. The IR gets passed to LLVM, which optimizes it and outputs a binary for the platform you're targeting. <code>load</code> and <code>icmp</code> are LLVM's terms for <code>movq</code> and <code>cmpq</code>. The test checks that the generated code doesn't contain the two instructions.<p>To figure that out, I used the Playground to see my function's IR:<pre style=color:#c0c5ce;background-color:#2b303b><code><span>; Function Attrs: norecurse nounwind uwtable
+</span><span>define void @test_clear(%"alloc::vec::Vec&lt;u8>"* noalias nocapture dereferenceable(24) %x) unnamed_addr #2 {
+</span><span>start:
+</span><span>  %0 = getelementptr inbounds %"alloc::vec::Vec&lt;u8>", %"alloc::vec::Vec&lt;u8>"* %x, i64 0, i32 3
+</span><span>  %1 = load i64, i64* %0, align 8, !alias.scope !5
+</span><span>  %2 = icmp eq i64 %1, 0
+</span><span>  br i1 %2, label %"_ZN33_$LT$alloc..vec..Vec$LT$T$GT$$GT$5clear17hf92f022d73112116E.exit", label %bb3.preheader.i.i
+</span><span>
+</span><span>bb3.preheader.i.i:                                ; preds = %start
+</span><span>  store i64 0, i64* %0, align 8, !alias.scope !5
+</span><span>  br label %"_ZN33_$LT$alloc..vec..Vec$LT$T$GT$$GT$5clear17hf92f022d73112116E.exit"
+</span><span>
+</span><span>"_ZN33_$LT$alloc..vec..Vec$LT$T$GT$$GT$5clear17hf92f022d73112116E.exit": ; preds = %start, %bb3.preheader.i.i
+</span><span>  ret void
+</span><span>}
+</span></code></pre><p>That's a mouthful, but you can find the length field address computation (<code>getelementptr</code>, affectionately called <code>gep</code>), the load and comparison, the branch and the store. <code>%0</code> … <code>%5</code> are similar to variables, but are <a href=https://en.wikipedia.org/wiki/Static_single_assignment_form>only assigned once</a>.<p>I then tried to run my test:<pre class=language-bash data-lang=bash style=color:#c0c5ce;background-color:#2b303b><code class=language-bash data-lang=bash><span style=color:#bf616a>./x.py</span><span> test src/test/codegen</span><span style=color:#bf616a> --keep-stage</span><span> 0</span><span style=color:#bf616a> --stage</span><span> 1
+</span></code></pre><p>But that <a href=https://github.com/rust-lang/rust/issues/52337>didn't seem to work</a>, possibly due to me using a local compiler for stage 0 (remember those <code>config.toml</code> settings?). So I crossed my fingers and pushed the code, waited for the relatively quick (half an hour) Travis tests to pass, pinged my reviewer and then it was out of my hands. The Rust team uses <a href=https://bors.tech/>bors</a> to merge one pull request at a time. This is done to avoid cases when two PRs work independently, but not together. The downside is that the whole process tends to be rather slow. Someone from the Rust team takes the pull requests that seem "harmless", merges them into a single one, then tries to land that. In my case this failed a couple of times, then finally went through.<h2 id=aftermath>Aftermath</h2><p>My change missed the 1.29 deadline by a day, but should be included in 1.30. After it was merged, I was finally able to send a <a href=https://github.com/hyperium/hyper/pull/1619>pull request</a> to <code>hyper</code>, removing four measly (but a quarter of all!) <code>unsafe</code> blocks.<p>My changes didn't make <code>hyper</code> safer <sup class=footnote-reference><a href=#pitchforks-2>7</a></sup>, nor do I expect them to have a measurable impact on the compiled code. But in the end, every little bit helps, while you might also call it a learning experience. And if I managed, then so could you — so consider giving it a shot. And if compilers aren't your thing, there's plenty of projects that could use a hand.<div class=footnote-definition id=pitchforks><sup class=footnote-definition-label>1</sup><p>As I've been known to do myself at times.</div><div class=footnote-definition id=unsafe><sup class=footnote-definition-label>2</sup><p>Some detractors of Rust argue that, since the standard library and many crates use unsafe code, the whole language is unsafe. <code>unsafe</code> is unavoidable, but it's a declaration of "Here be dragons", while you can trust the compiler to have your back for the rest of the code. Compare that to C.</div><div class=footnote-definition id=peepholes><sup class=footnote-definition-label>3</sup><p>Compilers have "peephole optimization" phases where they clean up sequences of instructions like these. LLVM might be missing one for this specific case. It might be an interesting exercise to analyze binaries generated by LLVM to check if this pattern occurs more often.</div><div class=footnote-definition id=intuition><sup class=footnote-definition-label>4</sup><p>And we've already seen how that goes.</div><div class=footnote-definition id=panic><sup class=footnote-definition-label>5</sup><p>Rust doesn't have exceptions, except panics are totally like exceptions, but more exceptional. You're not supposed to panic without a good reason.</div><div class=footnote-definition id=zero><sup class=footnote-definition-label>6</sup><p>The extra <code>00</code> byte between <code>movq</code> and <code>retq</code> must be either a no-op, or part of <code>movq</code>.</div><div class=footnote-definition id=pitchforks-2><sup class=footnote-definition-label>7</sup><p>Except maybe from the pitchfork mobs.</div></div></div>

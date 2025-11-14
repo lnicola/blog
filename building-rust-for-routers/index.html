@@ -1,0 +1,177 @@
+<!doctype html><html lang=en><head><meta charset=utf-8><meta content="width=device-width,initial-scale=1.0,maximum-scale=1,viewport-fit=cover" name=viewport><title>Building Rust code for my OpenWrt Wi-Fi router</title><link href=/print.css media=print rel=stylesheet><link href=/poole.css rel=stylesheet><link href=/hyde.css rel=stylesheet><link href=https://blog.dend.ro/atom.xml rel=alternate title=RSS type=application/atom+xml><link href=https://mapstodon.space/@lnicola rel=me><body><div class=sidebar><div class="container sidebar-sticky"><div class=sidebar-about><a href=https://blog.dend.ro/><h1></h1></a></div><ul class=sidebar-nav><li class=sidebar-nav-item><a href=/>Home</a><li class=sidebar-nav-item><a href=/content/talks/>Talks</a><li class=sidebar-nav-item><a href=/content/blogroll/>Blogroll</a><li class=sidebar-nav-item><a href=/content/acknowledgements/>Acknowledgements</a><li class=sidebar-nav-item><a href=https://www.buymeacoffee.com/lnicolaq>Buy me a ☕</a></ul></div></div><div class="content container"><div class=post><h1 class=post-title>Building Rust code for my OpenWrt Wi-Fi router</h1><span class=post-date>2022-05-08</span><p>I recently got interested in running Rust code on my router (stay tuned for a future blog post?). This is supposed to be easy, but I never tried it, so let's see how it goes.<h2 id=a-test-project>A test project</h2><p><em>Hello, world</em>s are somewhat boring, so I'd like to build something more realistic — a DNS client. We're not going to implement DNS here, but rather piggy-back on the <a href=https://crates.io/crates/trust-dns-resolver><code>trust-dns-resolver</code></a> crate, which looks pretty good.<p>After skimming the <code>trust-dns</code> and <code>tokio</code> docs, and a <code>cargo new delve</code> (shouts to <code>dig</code> and <code>drill</code>), we have this:<pre class=language-toml data-lang=toml style=color:#c0c5ce;background-color:#2b303b><code class=language-toml data-lang=toml><span>[package]
+</span><span style=color:#bf616a>name </span><span>= "</span><span style=color:#a3be8c>delve</span><span>"
+</span><span style=color:#bf616a>version </span><span>= "</span><span style=color:#a3be8c>0.1.0</span><span>"
+</span><span style=color:#bf616a>edition </span><span>= "</span><span style=color:#a3be8c>2021</span><span>"
+</span><span>
+</span><span>[dependencies]
+</span><span style=color:#bf616a>anyhow </span><span>= "</span><span style=color:#a3be8c>1.0</span><span>"
+</span><span style=color:#bf616a>tokio </span><span>= { </span><span style=color:#bf616a>version </span><span>= "</span><span style=color:#a3be8c>1.18</span><span>", </span><span style=color:#bf616a>features </span><span>= ["</span><span style=color:#a3be8c>net</span><span>", "</span><span style=color:#a3be8c>rt-multi-thread</span><span>"] }
+</span><span style=color:#bf616a>trust-dns-resolver </span><span>= { </span><span style=color:#bf616a>version </span><span>= "</span><span style=color:#a3be8c>0.21</span><span>", </span><span style=color:#bf616a>features </span><span>= [
+</span><span>    "</span><span style=color:#a3be8c>dns-over-rustls</span><span>",
+</span><span>    "</span><span style=color:#a3be8c>tokio</span><span>",
+</span><span>] }
+</span></code></pre><pre class=language-rust data-lang=rust style=color:#c0c5ce;background-color:#2b303b><code class=language-rust data-lang=rust><span style=color:#b48ead>use </span><span>std::env;
+</span><span>
+</span><span style=color:#b48ead>use </span><span>tokio::runtime;
+</span><span style=color:#b48ead>use </span><span>trust_dns_resolver::{
+</span><span>    config::{ResolverConfig, ResolverOpts},
+</span><span>    proto::{rr::RecordType, xfer::DnsRequestOptions},
+</span><span>    TokioAsyncResolver,
+</span><span>};
+</span><span>
+</span><span>async </span><span style=color:#b48ead>fn </span><span style=color:#8fa1b3>run</span><span>() -> Result&lt;(), anyhow::Error> {
+</span><span>    </span><span style=color:#b48ead>let</span><span> resolver =
+</span><span>        TokioAsyncResolver::tokio(ResolverConfig::cloudflare_tls(), ResolverOpts::default())?;
+</span><span>    </span><span style=color:#b48ead>let</span><span> query = env::args().</span><span style=color:#96b5b4>nth</span><span>(</span><span style=color:#d08770>1</span><span>).</span><span style=color:#96b5b4>unwrap</span><span>();
+</span><span>
+</span><span>    </span><span style=color:#b48ead>let</span><span> response = resolver
+</span><span>        .</span><span style=color:#96b5b4>lookup</span><span>(query, RecordType::A, DnsRequestOptions::default())
+</span><span>        .await?;
+</span><span>
+</span><span>    </span><span style=color:#b48ead>for</span><span> address in response.</span><span style=color:#96b5b4>iter</span><span>() {
+</span><span>        println!("</span><span style=color:#d08770>{}</span><span>", address);
+</span><span>    }
+</span><span>    Ok(())
+</span><span>}
+</span><span>
+</span><span style=color:#b48ead>fn </span><span style=color:#8fa1b3>main</span><span>() -> Result&lt;(), anyhow::Error> {
+</span><span>    </span><span style=color:#b48ead>let</span><span> runtime = runtime::Builder::new_multi_thread().</span><span style=color:#96b5b4>enable_all</span><span>().</span><span style=color:#96b5b4>build</span><span>()?;
+</span><span>    runtime.</span><span style=color:#96b5b4>block_on</span><span>(async { tokio::spawn(</span><span style=color:#96b5b4>run</span><span>()).await })?
+</span><span>}
+</span></code></pre><p>The code is pretty simple. It creates a <code>tokio</code> multi-threaded <code>Runtime</code>, sets up a <code>trust-dns</code> <code>TokioAsyncResolver</code>, then queries the Cloudflare DNS server for the hostname given in the command line. <code>RecordType::A</code> means asking for an IPv4 address record.<p>If you're wondering about the <code>block_on</code> / <code>spawn</code> dance, apparently <code>tokio</code> prefers that you don't do a lot of work in <code>block_on</code>, but rather spawn a root future and do your stuff from there. It doesn't really matter in this case, and <code>trust-dns-resolver</code> helpfully provides a synchronous resolver, but it will matter in the project I have in mind.<p>And it does appear to work fine:<pre class=language-bash data-lang=bash style=color:#c0c5ce;background-color:#2b303b><code class=language-bash data-lang=bash><span style=color:#bf616a>$</span><span> cargo run</span><span style=color:#bf616a> --release</span><span> -- google.com
+</span><span>   </span><span style=color:#bf616a>[snip]
+</span><span>    </span><span style=color:#bf616a>Finished</span><span> release </span><span style=color:#b48ead>[</span><span>optimized</span><span style=color:#b48ead>]</span><span> target(s) </span><span style=color:#bf616a>in</span><span> 9.66s
+</span><span>     </span><span style=color:#bf616a>Running </span><span>`</span><span style=color:#bf616a>target/release/delve</span><span> google.com`
+</span><span style=color:#bf616a>142.250.179.174
+</span></code></pre><h2 id=inside-my-router>Inside my router</h2><p>My router is an AVM FRITZ!Box 4040 running OpenWrt. As far as embedded systems go, OpenWrt is pretty close to a Linux PC. I've already enabled SSH and added my key, but I don't know what architecture it's running. Fortunately, <code>uname -a</code> works just as expected:<pre class=language-bash data-lang=bash style=color:#c0c5ce;background-color:#2b303b><code class=language-bash data-lang=bash><span style=color:#bf616a>root@OpenWrt:~#</span><span> uname</span><span style=color:#bf616a> -a
+</span><span style=color:#bf616a>Linux</span><span> OpenWrt 4.14.171 </span><span style=color:#65737e>#0 SMP Thu Feb 27 21:05:12 2020 armv7l GNU/Linux
+</span><span style=color:#bf616a>root@OpenWrt:~#</span><span> cat /proc/cpuinfo
+</span><span style=color:#bf616a>processor</span><span>	: 0
+</span><span style=color:#bf616a>model</span><span> name	: ARMv7 Processor rev 5 (v7l)
+</span><span style=color:#bf616a>BogoMIPS</span><span>	: 67.03
+</span><span style=color:#bf616a>Features</span><span>	: half thumb fastmult vfp edsp neon vfpv3 tls vfpv4 idiva idivt vfpd32 lpae evtstrm
+</span><span style=color:#bf616a>CPU</span><span> implementer	: 0x41
+</span><span style=color:#bf616a>CPU</span><span> architecture: 7
+</span><span style=color:#bf616a>CPU</span><span> variant	: 0x0
+</span><span style=color:#bf616a>CPU</span><span> part	: 0xc07
+</span><span style=color:#bf616a>CPU</span><span> revision	: 5
+</span><span>
+</span><span style=color:#bf616a>processor</span><span>	: 1
+</span><span style=color:#bf616a>model</span><span> name	: ARMv7 Processor rev 5 (v7l)
+</span><span style=color:#bf616a>BogoMIPS</span><span>	: 67.03
+</span><span style=color:#bf616a>Features</span><span>	: half thumb fastmult vfp edsp neon vfpv3 tls vfpv4 idiva idivt vfpd32 lpae evtstrm
+</span><span style=color:#bf616a>CPU</span><span> implementer	: 0x41
+</span><span style=color:#bf616a>CPU</span><span> architecture: 7
+</span><span style=color:#bf616a>CPU</span><span> variant	: 0x0
+</span><span style=color:#bf616a>CPU</span><span> part	: 0xc07
+</span><span style=color:#bf616a>CPU</span><span> revision	: 5
+</span><span>
+</span><span style=color:#bf616a>processor</span><span>	: 2
+</span><span style=color:#bf616a>model</span><span> name	: ARMv7 Processor rev 5 (v7l)
+</span><span style=color:#bf616a>BogoMIPS</span><span>	: 67.03
+</span><span style=color:#bf616a>Features</span><span>	: half thumb fastmult vfp edsp neon vfpv3 tls vfpv4 idiva idivt vfpd32 lpae evtstrm
+</span><span style=color:#bf616a>CPU</span><span> implementer	: 0x41
+</span><span style=color:#bf616a>CPU</span><span> architecture: 7
+</span><span style=color:#bf616a>CPU</span><span> variant	: 0x0
+</span><span style=color:#bf616a>CPU</span><span> part	: 0xc07
+</span><span style=color:#bf616a>CPU</span><span> revision	: 5
+</span><span>
+</span><span style=color:#bf616a>processor</span><span>	: 3
+</span><span style=color:#bf616a>model</span><span> name	: ARMv7 Processor rev 5 (v7l)
+</span><span style=color:#bf616a>BogoMIPS</span><span>	: 67.03
+</span><span style=color:#bf616a>Features</span><span>	: half thumb fastmult vfp edsp neon vfpv3 tls vfpv4 idiva idivt vfpd32 lpae evtstrm
+</span><span style=color:#bf616a>CPU</span><span> implementer	: 0x41
+</span><span style=color:#bf616a>CPU</span><span> architecture: 7
+</span><span style=color:#bf616a>CPU</span><span> variant	: 0x0
+</span><span style=color:#bf616a>CPU</span><span> part	: 0xc07
+</span><span style=color:#bf616a>CPU</span><span> revision	: 5
+</span><span>
+</span><span style=color:#bf616a>Hardware</span><span>	: Generic DT based system
+</span><span style=color:#bf616a>Revision</span><span>	: 0000
+</span><span style=color:#bf616a>Serial</span><span>		: 0000000000000000
+</span><span style=color:#bf616a>root@OpenWrt:~#</span><span> ldd</span><span style=color:#bf616a> --version
+</span><span style=color:#bf616a>musl</span><span> libc (armhf)
+</span><span style=color:#bf616a>Version</span><span> 1.1.24
+</span><span style=color:#bf616a>Dynamic</span><span> Program Loader
+</span><span style=color:#bf616a>Usage:</span><span> ldd </span><span style=color:#b48ead>[</span><span>options</span><span style=color:#b48ead>] [</span><span>--</span><span style=color:#b48ead>]</span><span> pathname
+</span></code></pre><p>So it appears a 4-core ARMv7 CPU with hardware floating-point support, running a MUSL-based distro.<h2 id=cross-compiling>Cross-compiling</h2><p>Rust supports dozens of targets, but ARMv7 is pretty common, so it's hopefully well-supported. I'm not sure how the target is called, so <code>rustup target list</code> is handy:<pre class=language-bash data-lang=bash style=color:#c0c5ce;background-color:#2b303b><code class=language-bash data-lang=bash><span style=color:#bf616a>$</span><span> rustup target list | </span><span style=color:#bf616a>rg</span><span> armv7
+</span><span style=color:#bf616a>armv7-linux-androideabi
+</span><span style=color:#bf616a>armv7-unknown-linux-gnueabi
+</span><span style=color:#bf616a>armv7-unknown-linux-gnueabihf
+</span><span style=color:#bf616a>armv7-unknown-linux-musleabi
+</span><span style=color:#bf616a>armv7-unknown-linux-musleabihf </span><span style=color:#65737e># sounds like a winner
+</span><span style=color:#bf616a>armv7a-none-eabi
+</span><span style=color:#bf616a>armv7r-none-eabi
+</span><span style=color:#bf616a>armv7r-none-eabihf
+</span><span style=color:#bf616a>$</span><span> rustup target add armv7-unknown-linux-musleabihf
+</span><span style=color:#bf616a>info:</span><span> downloading component '</span><span style=color:#a3be8c>rust-std</span><span>' for '</span><span style=color:#a3be8c>armv7-unknown-linux-musleabihf</span><span>'
+</span><span style=color:#bf616a>info:</span><span> installing component '</span><span style=color:#a3be8c>rust-std</span><span>' for '</span><span style=color:#a3be8c>armv7-unknown-linux-musleabihf</span><span>'
+</span></code></pre><p>Great, let's try it!<pre class=language-bash data-lang=bash style=color:#c0c5ce;background-color:#2b303b><code class=language-bash data-lang=bash><span style=color:#bf616a>$</span><span> cargo build</span><span style=color:#bf616a> --release --target</span><span> armv7-unknown-linux-musleabihf
+</span><span>   </span><span style=color:#bf616a>[snip]
+</span><span style=color:#bf616a>error:</span><span> linking with `</span><span style=color:#bf616a>cc</span><span>` failed: exit status: 1
+</span><span>   </span><span style=color:#bf616a>[snip</span><span> half a screenful of errors]
+</span></code></pre><p>Oh, we also need a linker. This would normally be a version of the BFD linker (<code>ld</code>). Unlike <code>clang</code> and <code>rustc</code>, <code>gcc</code> and <code>ld</code> only support one target at a time, so I'd have to track down or compile a compatible version. My Linux distro actually has one, available in AUR as <code>muslcc-arm-linux-musleabihf-cross-bin</code>.<p>But since we're compiling pure-Rust code — did you notice the fancy <code>rustls</code> feature of <code>trust-dns-resolver</code>? — the LLVM linker, <code>lld</code>, will do the trick with less work.<p>The correct incantation is then:<pre class=language-bash data-lang=bash style=color:#c0c5ce;background-color:#2b303b><code class=language-bash data-lang=bash><span style=color:#bf616a>$</span><span> CARGO_TARGET_ARMV7_UNKNOWN_LINUX_MUSLEABIHF_LINKER=rust-lld cargo build</span><span style=color:#bf616a> --release --target</span><span> armv7-unknown-linux-musleabihf
+</span><span>   </span><span style=color:#bf616a>[snip]
+</span><span>    </span><span style=color:#bf616a>Finished</span><span> release </span><span style=color:#b48ead>[</span><span>optimized</span><span style=color:#b48ead>]</span><span> target(s) </span><span style=color:#bf616a>in</span><span> 9.50s
+</span></code></pre><p>Is that all? That was surpisingly easy!<p>And by the way, you can also set the linker in <code>.config/cargo.toml</code>, like this:<pre class=language-toml data-lang=toml style=color:#c0c5ce;background-color:#2b303b><code class=language-toml data-lang=toml><span>[target.armv7-unknown-linux-musleabihf]
+</span><span style=color:#bf616a>linker </span><span>= "</span><span style=color:#a3be8c>rust-lld</span><span>"
+</span></code></pre><h2 id=testing>Testing</h2><p>We could test using QEMU, but that seems too much of a hassle, as the real hardware is already available.<pre class=language-bash data-lang=bash style=color:#c0c5ce;background-color:#2b303b><code class=language-bash data-lang=bash><span style=color:#bf616a>$</span><span> scp target/armv7-unknown-linux-musleabihf/release/delve root@192.168.2.1:</span><span style=color:#bf616a>~
+</span><span style=color:#bf616a>scp:</span><span> Connection closed
+</span></code></pre><p>The router is running OpenSSH 8.0p1, but <code>scp</code> is deprecated, and the version on my PC uses SFTP by default. The <code>-O</code> flag reverts to the deprecated protocol:<pre class=language-bash data-lang=bash style=color:#c0c5ce;background-color:#2b303b><code class=language-bash data-lang=bash><span style=color:#bf616a>$</span><span> scp</span><span style=color:#bf616a> -O</span><span> target/armv7-unknown-linux-musleabihf/release/delve root@192.168.2.1:</span><span style=color:#bf616a>~
+</span><span style=color:#bf616a>delve</span><span>                                        100% 8598KB 176.1KB/s   00:48
+</span></code></pre><p>That's a larger binary than I'd like, but 176 KB/s seems pretty slow. I know my network is faster that this, but it could be the file system:<pre class=language-bash data-lang=bash style=color:#c0c5ce;background-color:#2b303b><code class=language-bash data-lang=bash><span style=color:#bf616a>root@OpenWrt:~#</span><span> mount
+</span><span style=color:#bf616a>/dev/root</span><span> on /rom type squashfs (ro,relatime)
+</span><span style=color:#bf616a>proc</span><span> on /proc type proc (rw,nosuid,nodev,noexec,noatime)
+</span><span style=color:#bf616a>sysfs</span><span> on /sys type sysfs (rw,nosuid,nodev,noexec,noatime)
+</span><span style=color:#bf616a>tmpfs</span><span> on /tmp type tmpfs (rw,nosuid,nodev,noatime)
+</span><span style=color:#bf616a>/dev/mtdblock14</span><span> on /overlay type jffs2 (rw,noatime)
+</span><span style=color:#bf616a>overlayfs:/overlay</span><span> on / type overlay (rw,noatime,lowerdir=/,upperdir=/overlay/upper,workdir=/overlay/work)
+</span><span style=color:#bf616a>tmpfs</span><span> on /dev type tmpfs (rw,nosuid,relatime,size=512k,mode=755)
+</span><span style=color:#bf616a>devpts</span><span> on /dev/pts type devpts (rw,nosuid,noexec,relatime,mode=600,ptmxmode=000)
+</span><span style=color:#bf616a>debugfs</span><span> on /sys/kernel/debug type debugfs (rw,noatime)
+</span></code></pre><p>Oh, okay, let's copy it to <code>/tmp</code> instead:<pre class=language-bash data-lang=bash style=color:#c0c5ce;background-color:#2b303b><code class=language-bash data-lang=bash><span style=color:#bf616a>$</span><span> scp</span><span style=color:#bf616a> -O</span><span> target/armv7-unknown-linux-musleabihf/release/delve root@192.168.2.1:/tmp
+</span><span style=color:#bf616a>delve</span><span>                                        100% 8598KB  11.6MB/s   00:00
+</span></code></pre><p>More importantly, does it work?<pre class=language-bash data-lang=bash style=color:#c0c5ce;background-color:#2b303b><code class=language-bash data-lang=bash><span style=color:#bf616a>root@OpenWrt:~#</span><span> /tmp/delve news.ycombinator.com
+</span><span style=color:#bf616a>209.216.230.240
+</span></code></pre><p>Honestly, I was more suprised to see it working than you are.<h2 id=what-about-the-binary-size>What about the binary size?</h2><p>Our executable packs in quite a bit: Tokio, an async DNS client, and a TLS implementation for DNS-over-TLS. But at 8.5 MB, it's pretty large for a Wi-Fi router with 128 MB of flash.<p>Let's see if we can get it to weigh less, testing with the PC version. I know that a large part of the binary must be the symbols. I'd normally use <code>strip -s</code>, but <code>cargo</code> can do this by itself. This is also a good excuse to try the custom profiles feature.<p>Let's start by adding a new profile to <code>Cargo.toml</code>:<pre class=language-toml data-lang=toml style=color:#c0c5ce;background-color:#2b303b><code class=language-toml data-lang=toml><span>[profile.minsize]
+</span><span style=color:#bf616a>inherits </span><span>= "</span><span style=color:#a3be8c>release</span><span>"
+</span></code></pre><p>, then build it with <code>cargo build --profile minsize</code>.<p>There's a lot of resources out there with tips for reducing the binary sizes (it's a common complaint), so I'll just list each thing I've tried, incrementally:<ul><li>baseline: 8.5 MB<li><code>strip = true</code>: 3.2 MB<li><code>lto = "thin"</code>: 3.1 MB<li><code>lto = "fat"</code>: 2.6 MB (didn't expect this!)<li><code>opt-level = "s"</code>: 2.3 MB (didn't expect this either)<li><code>panic = "abort"</code>: 2.1 MB<li>switch to the single-thread <code>tokio</code> runtime: 2.0 MB<li><code>cargo build -Z build-std=panic_abort,std --profile minsize --target x86_64-unknown-linux-gnu</code> (you'll need nightly or <code>RUSTC_BOOTSTRAP=1</code> for this): 1.9 MB<li>disable the <code>system-config</code> feature of <code>trust-dns-resolver</code>: 1.9 MB</ul><p>Rebuilding it for the router, we get a 1.4 MB binary, which is still a bit large, but workable.<h2 id=bonus-packaging-for-openwrt>Bonus: packaging for OpenWrt</h2><p>I was curious about making a binary package for OpenWrt, which appears to use a format inspired by Debian (<code>ipkg</code>). Reading the docs isn't fun, but we can find where the package manager (<code>okpg</code>) downloads stuff from (<code>/etc/opkg/distfeeds.conf</code>), then get a random package from there.<p>I picked <code>attr_20170915-1_arm_cortex-a7_neon-vfpv4.ipk</code>, which appears to be a <code>.tar.gz</code> archive, containing three files:<ul><li><code>control.tar.gz</code><li><code>data.tar.gz</code><li><code>debian-binary</code>, a text file saying <code>2.0</code></ul><p><code>control.tar.gz</code> has one metadata file, <code>control</code>, and some pre- and post-install scripts we can copy over or ignore:<pre style=color:#c0c5ce;background-color:#2b303b><code><span>Package: attr
+</span><span>Version: 20170915-1
+</span><span>Depends: libc, libattr
+</span><span>Source: feeds/packages/utils/attr
+</span><span>License: LGPL-2.1 GPL-2.0
+</span><span>LicenseFiles: doc/COPYING doc/COPYING.LGPL
+</span><span>Section: utils
+</span><span>Maintainer: Maxim Storchak &lt;m.storchak@gmail.com>
+</span><span>Architecture: arm_cortex-a7_neon-vfpv4
+</span><span>Installed-Size: 11080
+</span><span>Description:  Extended attributes support
+</span><span> This package provides xattr manipulation utilities
+</span><span> - attr
+</span><span> - getfattr
+</span><span> - setfattr
+</span></code></pre><p>Interestingly, my router uses <code>vfpv4</code> packages, even though only <code>vfpv3</code> appears in <code>/proc/cpuinfo</code>. Well, whatever makes it happy. The <code>Installed-Size</code> field is also strange, as it doesn't seem to match the size of the files. It's optional optional, so it doesn't matter too much.<p>We can make a similar file:<pre style=color:#c0c5ce;background-color:#2b303b><code><span>Package: delve
+</span><span>Version: 0.0.1
+</span><span>Depends: libc
+</span><span>License: MIT
+</span><span>Section: utils
+</span><span>Architecture: arm_cortex-a7_neon-vfpv4
+</span><span>Installed-Size: 1414464
+</span><span>Description: DNS testing tool
+</span></code></pre><p>Finally, <code>data.tar.gz</code> contains the installed tree. Putting things together, we have:<pre style=color:#c0c5ce;background-color:#2b303b><code><span>.
+</span><span>├── control
+</span><span>├── control.tar.gz
+</span><span>├── data.tar.gz
+</span><span>├── debian-binary
+</span><span>├── delve_0.0.1_arm_cortex-a7_neon-vfpv4.ipk
+</span><span>└── usr
+</span><span>    └── bin
+</span><span>        └── delve
+</span><span>
+</span><span>2 directories, 6 files
+</span></code></pre><p>And on the router:<pre class=language-bash data-lang=bash style=color:#c0c5ce;background-color:#2b303b><code class=language-bash data-lang=bash><span style=color:#bf616a>root@OpenWrt:/tmp#</span><span> opkg install delve_0.0.1_arm_cortex-a7_neon-vfpv4.ipk
+</span><span style=color:#bf616a>Installing</span><span> delve (0.0.1) </span><span style=color:#bf616a>to</span><span> root...
+</span><span style=color:#bf616a>Configuring</span><span> delve.
+</span><span style=color:#bf616a>root@OpenWrt:/tmp#</span><span> delve sci-hub.se
+</span><span style=color:#bf616a>186.2.163.219
+</span></code></pre><p>If you ever try this, make sure to actually compress the archives using <code>gzip</code> (or <code>tar czf</code>). I forgot that <code>tar</code> only guesses the format when extracting, and <code>opkg install</code> greeted me with a fun <code>Segmentation fault</code> message.<h2 id=naming-apologies>Naming apologies</h2><p>I just realized that the <code>delve</code> name is already taken by a Go debugger. Not that it matters, as nobody will be using this, but it's a common source of complaints.<h2 id=final-words>Final words</h2><p>To sum up, we wrote a simple DNS client, tweaked things a little to reduce the binary size, cross-compiled it for an ARM Wi-Fi router, packaged and tested it there. Surprisingly, it actually worked.<p>Thanks for staying with me, and if you found this interesting please <a href=https://www.buymeacoffee.com/lnicolaq>consider buying me a coffee</a>.</div></div>

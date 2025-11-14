@@ -1,0 +1,258 @@
+<!doctype html><html lang=en><head><meta charset=utf-8><meta content="width=device-width,initial-scale=1.0,maximum-scale=1,viewport-fit=cover" name=viewport><title>Mapping my walks with OSRM and Rust</title><link href=/print.css media=print rel=stylesheet><link href=/poole.css rel=stylesheet><link href=/hyde.css rel=stylesheet><link href=https://blog.dend.ro/atom.xml rel=alternate title=RSS type=application/atom+xml><link href=https://mapstodon.space/@lnicola rel=me><body><div class=sidebar><div class="container sidebar-sticky"><div class=sidebar-about><a href=https://blog.dend.ro/><h1></h1></a></div><ul class=sidebar-nav><li class=sidebar-nav-item><a href=/>Home</a><li class=sidebar-nav-item><a href=/content/talks/>Talks</a><li class=sidebar-nav-item><a href=/content/blogroll/>Blogroll</a><li class=sidebar-nav-item><a href=/content/acknowledgements/>Acknowledgements</a><li class=sidebar-nav-item><a href=https://www.buymeacoffee.com/lnicolaq>Buy me a ☕</a></ul></div></div><div class="content container"><div class=post><h1 class=post-title>Mapping my walks with OSRM and Rust</h1><span class=post-date>2022-01-15</span><p><a href=/map-matching-osrm/>Last week</a>, we looked at the data from my smartwatch app and how to snap it to the OpenStreetMap roads. If you haven't already, consider reading that post before moving on. This time, we'll be writing some code in the <a href=https://rust-lang.org/>Rust</a> programming language. Keep in mind that this isn't exactly production-grade code, but rather something you would normally write in Python in one afternoon. I'll link to the crates I'm using for the benefit of readers less familiar with the Rust ecosystem.<h2 id=importing-the-data>Importing the data</h2><p>If you recall from last time, our data points include a timestamp, the latitude and longitude, and an accuracy radius. We can define our point type as follows:<pre class=language-rust data-lang=rust style=color:#c0c5ce;background-color:#2b303b><code class=language-rust data-lang=rust><span style=color:#b48ead>pub struct </span><span>Point {
+</span><span>    </span><span style=color:#b48ead>pub </span><span style=color:#bf616a>time</span><span>: OffsetDateTime,
+</span><span>    </span><span style=color:#b48ead>pub </span><span style=color:#bf616a>geom</span><span>: geo_types::Point&lt;</span><span style=color:#b48ead>f64</span><span>>,
+</span><span>    </span><span style=color:#b48ead>pub </span><span style=color:#bf616a>radius</span><span>: </span><span style=color:#b48ead>f32</span><span>,
+</span><span>}
+</span></code></pre><p>The <code>OffsetDateTime</code> and <code>Point&lt;T></code> types are from the <a href=https://crates.io/crates/time><code>time</code></a> and <a href=https://crates.io/crates/geo-types><code>geo-types</code></a> crates, respectively. We'll also need <a href=https://crates.io/crates/zip><code>zip</code></a> and <a href=https://crates.io/crates/csv><code>csv</code></a> in order to parse the exported file.<p>Let's see what reading the file looks like:<pre class=language-rust data-lang=rust style=color:#c0c5ce;background-color:#2b303b><code class=language-rust data-lang=rust><span style=color:#b48ead>pub fn </span><span style=color:#8fa1b3>read_archive</span><span>(</span><span style=color:#bf616a>path</span><span>: &Path) -> Result&lt;Vec&lt;Point>, Error> {
+</span><span>    </span><span style=color:#b48ead>let</span><span> file = File::open(path)?;
+</span><span>    </span><span style=color:#b48ead>let mut</span><span> archive = ZipArchive::new(file)?;
+</span><span>    </span><span style=color:#b48ead>let mut</span><span> latitudes = Vec::new();
+</span><span>    </span><span style=color:#b48ead>let mut</span><span> record = StringRecord::new();
+</span><span>    {
+</span><span>        </span><span style=color:#b48ead>let</span><span> reader = archive.</span><span style=color:#96b5b4>by_name</span><span>("</span><span style=color:#a3be8c>raw_location_latitude.csv</span><span>")?;
+</span><span>        </span><span style=color:#b48ead>let mut</span><span> reader = Reader::from_reader(reader);
+</span><span>        </span><span style=color:#b48ead>while</span><span> reader.</span><span style=color:#96b5b4>read_record</span><span>(&</span><span style=color:#b48ead>mut</span><span> record)? {
+</span><span>            latitudes.</span><span style=color:#96b5b4>push</span><span>(</span><span style=color:#96b5b4>get_array_first_value</span><span>(&record[</span><span style=color:#d08770>2</span><span>])?);
+</span><span>        }
+</span><span>    }
+</span><span>    </span><span style=color:#b48ead>let</span><span> n = latitudes.</span><span style=color:#96b5b4>len</span><span>();
+</span><span>    </span><span style=color:#b48ead>let mut</span><span> times = Vec::with_capacity(n);
+</span><span>    </span><span style=color:#b48ead>let mut</span><span> longitudes = Vec::with_capacity(n);
+</span><span>    {
+</span><span>        </span><span style=color:#b48ead>let</span><span> reader = archive.</span><span style=color:#96b5b4>by_name</span><span>("</span><span style=color:#a3be8c>raw_location_longitude.csv</span><span>")?;
+</span><span>        </span><span style=color:#b48ead>let mut</span><span> reader = Reader::from_reader(reader);
+</span><span>        </span><span style=color:#b48ead>while</span><span> reader.</span><span style=color:#96b5b4>read_record</span><span>(&</span><span style=color:#b48ead>mut</span><span> record)? {
+</span><span>            </span><span style=color:#b48ead>let</span><span> time = OffsetDateTime::parse(&record[</span><span style=color:#d08770>0</span><span>], &well_known::Rfc3339)?;
+</span><span>            times.</span><span style=color:#96b5b4>push</span><span>(time);
+</span><span>            longitudes.</span><span style=color:#96b5b4>push</span><span>(</span><span style=color:#96b5b4>get_array_first_value</span><span>(&record[</span><span style=color:#d08770>2</span><span>])?);
+</span><span>        }
+</span><span>    }
+</span><span>    assert_eq!(longitudes.</span><span style=color:#96b5b4>len</span><span>(), n);
+</span><span>    </span><span style=color:#b48ead>let mut</span><span> radiuses = Vec::with_capacity(n);
+</span><span>    {
+</span><span>        </span><span style=color:#b48ead>let</span><span> reader = archive.</span><span style=color:#96b5b4>by_name</span><span>("</span><span style=color:#a3be8c>raw_location_horizontal-radius.csv</span><span>")?;
+</span><span>        </span><span style=color:#b48ead>let mut</span><span> reader = Reader::from_reader(reader);
+</span><span>        </span><span style=color:#b48ead>while</span><span> reader.</span><span style=color:#96b5b4>read_record</span><span>(&</span><span style=color:#b48ead>mut</span><span> record)? {
+</span><span>            radiuses.</span><span style=color:#96b5b4>push</span><span>(</span><span style=color:#96b5b4>get_array_first_value</span><span>(&record[</span><span style=color:#d08770>2</span><span>])?);
+</span><span>        }
+</span><span>    }
+</span><span>    assert_eq!(radiuses.</span><span style=color:#96b5b4>len</span><span>(), n);
+</span><span>    </span><span style=color:#b48ead>let</span><span> points = izip!(times, latitudes, longitudes, radiuses)
+</span><span>        .</span><span style=color:#96b5b4>map</span><span>(|(</span><span style=color:#bf616a>time</span><span>, </span><span style=color:#bf616a>lat</span><span>, </span><span style=color:#bf616a>lon</span><span>, </span><span style=color:#bf616a>radius</span><span>)| {
+</span><span>            </span><span style=color:#b48ead>let</span><span> geom = geo_types::Point::new(lon, lat);
+</span><span>            Point { time, geom, radius }
+</span><span>        })
+</span><span>        .</span><span style=color:#96b5b4>collect</span><span>();
+</span><span>    Ok(points)
+</span><span>}
+</span><span>
+</span><span style=color:#b48ead>fn </span><span style=color:#8fa1b3>get_array_first_value</span><span>&lt;T>(</span><span style=color:#bf616a>s</span><span>: &</span><span style=color:#b48ead>str</span><span>) -> Result&lt;T, </span><span style=color:#b48ead>T::</span><span>Err>
+</span><span style=color:#b48ead>where
+</span><span>    T: FromStr,
+</span><span>    </span><span style=color:#b48ead>T::</span><span>Err: std::fmt::Debug,
+</span><span>{
+</span><span>    </span><span style=color:#b48ead>let</span><span> p = s.</span><span style=color:#96b5b4>find</span><span>(|</span><span style=color:#bf616a>c</span><span>| c == '</span><span style=color:#a3be8c>]</span><span>' || c == '</span><span style=color:#a3be8c>,</span><span>').</span><span style=color:#96b5b4>expect</span><span>("</span><span style=color:#a3be8c>expected array</span><span>");
+</span><span>    s[</span><span style=color:#d08770>1</span><span>..p].</span><span style=color:#96b5b4>parse</span><span>()
+</span><span>}
+</span></code></pre><p>The code is somewhat unwieldly because it needs to read three different CSVs from the archive. The ZIP reader needs to seek into the archive, so we can't read all of them at once. If you're familiar with Rust, that constraint is expressed in the type system by <code>Reader</code> having a mutable reference to <code>ZipArchive</code>. Instead, we open the files one at a time and scan through each.<p>We need to remember to read the timestamps and there is one extra complication. The values are written as JSON-like arrays (e.g. <code>[44.XXX,657.XXX]</code>), but only the first one makes sense. Instead of reaching for a full-blown JSON parser, we simply look for a bracket or comma and parse the number we find there.<p>The <code>izip</code> macro comes from <a href=https://crates.io/crates/itertools><code>itertools</code></a> and lets us iterate over the multiple collections at once.<p>Note that the implementation keeps all the points in memory (twice, even). Normally I would dump the points to disk and read them back, but it would make the code harder to follow in a blog post. In any case, this doesn't dominate our memory usage.<h2 id=calling-into-osrm>Calling into OSRM</h2><p>As mentioned last time, OSRM has an HTTP server, so we'll use <a href=https://crates.io/crates/reqwest><code>reqwest</code></a> to call into it and <a href=https://crates.io/crates/serde><code>serde</code></a> to deserialize the JSON responses.<p>First of all, we define some structs that roughly match the OSRM response:<pre class=language-rust data-lang=rust style=color:#c0c5ce;background-color:#2b303b><code class=language-rust data-lang=rust><span>#[</span><span style=color:#bf616a>derive</span><span>(Deserialize, Debug)]
+</span><span style=color:#b48ead>pub struct </span><span>MatchResponse {
+</span><span>    </span><span style=color:#b48ead>pub </span><span style=color:#bf616a>matchings</span><span>: Vec&lt;Matching>,
+</span><span>}
+</span><span>
+</span><span>#[</span><span style=color:#bf616a>derive</span><span>(Deserialize, Debug)]
+</span><span style=color:#b48ead>pub struct </span><span>Matching {
+</span><span>    </span><span style=color:#b48ead>pub </span><span style=color:#bf616a>geometry</span><span>: String,
+</span><span>}
+</span></code></pre><p>Then our client:<pre class=language-rust data-lang=rust style=color:#c0c5ce;background-color:#2b303b><code class=language-rust data-lang=rust><span style=color:#b48ead>pub struct </span><span>OsrmClient {
+</span><span>    </span><span style=color:#bf616a>client</span><span>: Client,
+</span><span>    </span><span style=color:#bf616a>base_url</span><span>: String,
+</span><span>}
+</span><span>
+</span><span style=color:#b48ead>impl </span><span>OsrmClient {
+</span><span>    </span><span style=color:#b48ead>pub fn </span><span style=color:#8fa1b3>new</span><span>(</span><span style=color:#bf616a>base_url</span><span>: String) -> </span><span style=color:#b48ead>Self </span><span>{
+</span><span>        </span><span style=color:#b48ead>let</span><span> client = Client::new();
+</span><span>        </span><span style=color:#b48ead>Self </span><span>{ client, base_url }
+</span><span>    }
+</span><span>
+</span><span>    </span><span style=color:#b48ead>pub fn </span><span style=color:#8fa1b3>match_map</span><span>(
+</span><span>        &</span><span style=color:#bf616a>self</span><span>,
+</span><span>        </span><span style=color:#bf616a>profile</span><span>: &</span><span style=color:#b48ead>str</span><span>,
+</span><span>        </span><span style=color:#bf616a>points</span><span>: &[Point],
+</span><span>    ) -> Result&lt;MultiLineString&lt;</span><span style=color:#b48ead>f64</span><span>>, Error> {
+</span><span>        </span><span style=color:#b48ead>let mut</span><span> q = format!("</span><span style=color:#d08770>{}</span><span style=color:#a3be8c>match/v1/</span><span style=color:#d08770>{profile}</span><span style=color:#a3be8c>/polyline6(</span><span>", </span><span style=color:#bf616a>self</span><span>.base_url);
+</span><span>        </span><span style=color:#b48ead>let mut</span><span> timestamps = String::new();
+</span><span>        </span><span style=color:#b48ead>let mut</span><span> radiuses = String::from("</span><span style=color:#a3be8c>&radiuses=</span><span>");
+</span><span>        </span><span style=color:#b48ead>let</span><span> coordinates = LineString::from_iter(points.</span><span style=color:#96b5b4>iter</span><span>().</span><span style=color:#96b5b4>map</span><span>(|</span><span style=color:#bf616a>p</span><span>| p.geom));
+</span><span>        </span><span style=color:#b48ead>for</span><span> point in points {
+</span><span>            write!(timestamps, "</span><span style=color:#d08770>{}</span><span style=color:#a3be8c>;</span><span>", point.time.</span><span style=color:#96b5b4>unix_timestamp</span><span>())?;
+</span><span>            write!(radiuses, "</span><span style=color:#d08770>{}</span><span style=color:#a3be8c>;</span><span>", point.radius)?;
+</span><span>        }
+</span><span>        timestamps.</span><span style=color:#96b5b4>pop</span><span>();
+</span><span>        radiuses.</span><span style=color:#96b5b4>pop</span><span>();
+</span><span>        </span><span style=color:#b48ead>let</span><span> coordinates =
+</span><span>            polyline::encode_coordinates(coordinates, </span><span style=color:#d08770>6</span><span>).</span><span style=color:#96b5b4>map_err</span><span>(|</span><span style=color:#bf616a>e</span><span>| anyhow!(e))?;
+</span><span>        </span><span style=color:#b48ead>let</span><span> pe = percent_encoding::percent_encode(
+</span><span>            coordinates.</span><span style=color:#96b5b4>as_bytes</span><span>(),
+</span><span>            percent_encoding::</span><span style=color:#d08770>NON_ALPHANUMERIC</span><span>,
+</span><span>        );
+</span><span>        write!(
+</span><span>            q,
+</span><span>            "</span><span style=color:#d08770>{}</span><span style=color:#a3be8c>)?geometries=polyline6&tidy=true&steps=false&amp;timestamps=</span><span>",
+</span><span>            pe
+</span><span>        )?;
+</span><span>        q.</span><span style=color:#96b5b4>push_str</span><span>(&amp;timestamps);
+</span><span>        q.</span><span style=color:#96b5b4>push_str</span><span>(&radiuses);
+</span><span>        </span><span style=color:#b48ead>let</span><span> res = </span><span style=color:#bf616a>self</span><span>.client.</span><span style=color:#96b5b4>get</span><span>(&q).</span><span style=color:#96b5b4>send</span><span>()?.json::&lt;MatchResponse>()?;
+</span><span>        </span><span style=color:#b48ead>let</span><span> mls = MultiLineString(
+</span><span>            res.matchings
+</span><span>                .</span><span style=color:#96b5b4>into_iter</span><span>()
+</span><span>                .</span><span style=color:#96b5b4>map</span><span>(|</span><span style=color:#bf616a>m</span><span>| polyline::decode_polyline(&m.geometry, </span><span style=color:#d08770>6</span><span>))
+</span><span>                .collect::&lt;Result&lt;Vec&lt;_>, _>>()
+</span><span>                .</span><span style=color:#96b5b4>map_err</span><span>(|</span><span style=color:#bf616a>e</span><span>| anyhow!(e))?,
+</span><span>        );
+</span><span>        Ok(mls)
+</span><span>    }
+</span><span>}
+</span></code></pre><p>Again, this is quick and dirty code. We use the <a href=https://developers.google.com/maps/documentation/utilities/polylinealgorithm><code>polyline</code></a> encoding of the coordinates and the corresponding <a href=https://crates.io/crates/polyline>crate</a> for it. Because <code>polyline</code> uses an encoding that contains non-alphanumeric characters, we need to encode them using <a href=https://crates.io/crates/polyline><code>percent-encoding</code></a>. This crate doesn't have a standard error type (it uses <code>String</code>s), so we adapt them using <a href=https://crates.io/crates/anyhow><code>anyhow</code></a>, which is also appears in the rest of the code.<h2 id=saving-a-flatgeobuf>Saving a FlatGeobuf</h2><p>This isn't really required for our purposes, but I want to keep a copy of the points in a format better suited for using later. I'd normally use <a href=https://geopackage.org/>GeoPackage</a>, but I want to give <a href=https://flatgeobuf.org/>FlatGeobuf</a> a try. This is a newer format, with a simpler structure and which should be simpler to write, since a <a href=https://crates.io/crates/flatgeobuf>pure-Rust</a> implementation is available. Fortunately, <a href=https://gdal.org/>GDAL</a> also has a reader, so it should be compatible with every application I care about at the moment.<p><code>flatgeobuf</code> has a slightly strange API, but it's not too bad and I've seen worse. It integrates closely with <a href=https://crates.io/crates/geozero><code>geozero</code></a>, which is a visitor-based API for zero-copy processing of geospatial data.<pre class=language-rust data-lang=rust style=color:#c0c5ce;background-color:#2b303b><code class=language-rust data-lang=rust><span style=color:#b48ead>fn </span><span style=color:#8fa1b3>export_fgb</span><span>(</span><span style=color:#bf616a>name</span><span>: &</span><span style=color:#b48ead>str</span><span>, </span><span style=color:#bf616a>file</span><span>: &Path, </span><span style=color:#bf616a>points</span><span>: &[Point]) -> anyhow::Result&lt;()> {
+</span><span>    </span><span style=color:#b48ead>let mut</span><span> fgb = FgbWriter::create(name, GeometryType::Point, |_, _| {})?;
+</span><span>    fgb.</span><span style=color:#96b5b4>set_crs</span><span>(</span><span style=color:#d08770>4326</span><span>, |</span><span style=color:#bf616a>_fbb</span><span>, </span><span style=color:#bf616a>_crs</span><span>| {});
+</span><span>    fgb.</span><span style=color:#96b5b4>add_column</span><span>("</span><span style=color:#a3be8c>time</span><span>", ColumnType::DateTime, |_, </span><span style=color:#bf616a>col</span><span>| {
+</span><span>        col.nullable = </span><span style=color:#d08770>false</span><span>;
+</span><span>    });
+</span><span>    fgb.</span><span style=color:#96b5b4>add_column</span><span>("</span><span style=color:#a3be8c>radius</span><span>", ColumnType::Float, |_, </span><span style=color:#bf616a>col</span><span>| {
+</span><span>        col.nullable = </span><span style=color:#d08770>false</span><span>;
+</span><span>    });
+</span><span>    </span><span style=color:#b48ead>for</span><span> point in points {
+</span><span>        </span><span style=color:#b48ead>let</span><span> time = point.time.</span><span style=color:#96b5b4>format</span><span>(&well_known::Rfc3339)?;
+</span><span>        fgb.</span><span style=color:#96b5b4>add_feature_geom</span><span>(Geometry::Point(point.geom), |</span><span style=color:#bf616a>feat</span><span>| {
+</span><span>            feat.</span><span style=color:#96b5b4>property</span><span>(</span><span style=color:#d08770>0</span><span>, "</span><span style=color:#a3be8c>time</span><span>", &ColumnValue::DateTime(&time))
+</span><span>                .</span><span style=color:#96b5b4>unwrap</span><span>();
+</span><span>            feat.</span><span style=color:#96b5b4>property</span><span>(</span><span style=color:#d08770>1</span><span>, "</span><span style=color:#a3be8c>radius</span><span>", &ColumnValue::Float(point.radius))
+</span><span>                .</span><span style=color:#96b5b4>unwrap</span><span>();
+</span><span>        })?;
+</span><span>    }
+</span><span>    </span><span style=color:#b48ead>let</span><span> out_file = File::create(file)?;
+</span><span>    fgb.</span><span style=color:#96b5b4>write</span><span>(&</span><span style=color:#b48ead>mut </span><span>BufWriter::new(out_file))?;
+</span><span>    Ok(())
+</span><span>}
+</span></code></pre><p>We create a writer, configure the <a href=https://www.earthdatascience.org/courses/earth-analytics/spatial-data-r/intro-to-coordinate-reference-systems/>CRS</a> and define the two columns. Afterwards, we can iterate over our points, create features from them, and set the column values.<h2 id=reprojecting-the-data>Reprojecting the data</h2><p>I want to display the resulting tracks on a map, but the (latitude, longitude) coordinates aren't ideal, since they introduce quite a bit of distorsion:<p><a href=/assets/gps-4326.webp target=_blank><img src=/assets/gps-4326.webp></a><p>Instead, we will reproject our points to the <a href=https://en.wikipedia.org/wiki/Web_Mercator_projection>Web Mercator</a> (or, more formally, EPSG:3857) projection. While it's not really accurate, it's good enough at this latitude for my purposes. Web Mercator has been popularized by Google Maps, and the look of it should be familiar to anyone who's ever seen an interactive map on the Web.<p><a href=/assets/gps-3857.webp target=_blank><img src=/assets/gps-3857.webp></a><p>For this, I'd normally use <code>GDAL</code> or <a href=https://proj.org/><code>PROJ</code></a>, but GDAL's approach to threading isn't the most fortunate. We could probably use the <a href=https://crates.io/crates/proj><code>proj</code></a> bindings, but even those bring quite a bit of complexity.<p>The conversion to Web Mercator should be pretty easy. You can see a pair of formulas in the link above, but they use different bounds, and it's not obvious how to do it correctly. Stack Overflow produces a fair bit of <a href=https://gis.stackexchange.com/questions/208966/converting-lat-long-to-epsg3857-coordinates>confusion</a> and <a href=https://gis.stackexchange.com/questions/142866/converting-latitude-longitude-epsg4326-into-epsg3857/142871#142871>two</a> <a href=https://stackoverflow.com/questions/37523872/converting-coordinates-from-epsg-3857-to-4326/40403522#comment81831709_40403522>answers</a>, but neither of them agrees with <code>PROJ</code>. After a bit of hit-and miss, I realized that the three implementations are using different values for the Earth radius. I believe the correct value to use in this case is <code>6_378_137 m</code>. My final implementation gives the same result (up to the precision limit) as <code>PROJ</code> for a couple of points I've tried, so I hope it's correct.<pre class=language-rust data-lang=rust style=color:#c0c5ce;background-color:#2b303b><code class=language-rust data-lang=rust><span style=color:#b48ead>pub fn </span><span style=color:#8fa1b3>epsg_4326_to_3857</span><span>(</span><span style=color:#bf616a>x</span><span>: </span><span style=color:#b48ead>f64</span><span>, </span><span style=color:#bf616a>y</span><span>: </span><span style=color:#b48ead>f64</span><span>) -> (</span><span style=color:#b48ead>f64</span><span>, </span><span style=color:#b48ead>f64</span><span>) {
+</span><span>    </span><span style=color:#b48ead>const </span><span style=color:#d08770>WGS84_EQUATORIAL_RADIUS</span><span>: </span><span style=color:#b48ead>f64 </span><span>= </span><span style=color:#d08770>6_378_137.0</span><span>;
+</span><span>    </span><span style=color:#b48ead>const </span><span style=color:#d08770>MAX_LATITUDE</span><span>: </span><span style=color:#b48ead>f64 </span><span>= </span><span style=color:#d08770>85.06</span><span>;
+</span><span>
+</span><span>    </span><span style=color:#b48ead>let</span><span> x = x.</span><span style=color:#96b5b4>to_radians</span><span>();
+</span><span>    </span><span style=color:#b48ead>let</span><span> y = </span><span style=color:#b48ead>if</span><span> y > </span><span style=color:#d08770>MAX_LATITUDE </span><span>{
+</span><span>        std::f64::consts::</span><span style=color:#d08770>PI
+</span><span>    } </span><span style=color:#b48ead>else if</span><span> y &lt; -</span><span style=color:#d08770>MAX_LATITUDE </span><span>{
+</span><span>        -std::f64::consts::</span><span style=color:#d08770>PI
+</span><span>    } </span><span style=color:#b48ead>else </span><span>{
+</span><span>        </span><span style=color:#b48ead>let</span><span> y = y.</span><span style=color:#96b5b4>to_radians</span><span>() / </span><span style=color:#d08770>2.0 </span><span>+ std::f64::consts::</span><span style=color:#d08770>FRAC_PI_4</span><span>;
+</span><span>        y.</span><span style=color:#96b5b4>tan</span><span>().</span><span style=color:#96b5b4>ln</span><span>()
+</span><span>    };
+</span><span>    (x * </span><span style=color:#d08770>WGS84_EQUATORIAL_RADIUS</span><span>, y * </span><span style=color:#d08770>WGS84_EQUATORIAL_RADIUS</span><span>)
+</span><span>}
+</span></code></pre><p>There is also a helper that reprojects an entire track:<pre class=language-rust data-lang=rust style=color:#c0c5ce;background-color:#2b303b><code class=language-rust data-lang=rust><span style=color:#b48ead>fn </span><span style=color:#8fa1b3>reproject_route</span><span>(</span><span style=color:#bf616a>mls</span><span>: &</span><span style=color:#b48ead>mut </span><span>MultiLineString&lt;</span><span style=color:#b48ead>f64</span><span>>) {
+</span><span>    mls.</span><span style=color:#96b5b4>iter_mut</span><span>().</span><span style=color:#96b5b4>for_each</span><span>(|</span><span style=color:#bf616a>ls</span><span>| {
+</span><span>        ls.</span><span style=color:#d08770>0.</span><span style=color:#96b5b4>iter_mut</span><span>().</span><span style=color:#96b5b4>for_each</span><span>(|</span><span style=color:#bf616a>p</span><span>| {
+</span><span>            </span><span style=color:#b48ead>let </span><span>(x, y) = geo::epsg_4326_to_3857(p.x, p.y);
+</span><span>            p.x = x;
+</span><span>            p.y = y;
+</span><span>        });
+</span><span>    });
+</span><span>}
+</span></code></pre><h2 id=rasterization>Rasterization</h2><p>Next, I want to display the tracks returned by OSRM as images. Converting from vector data to an image is called rasterization. I had a couple of options here (it's less flexible, but GDAL can do it), but I decided to a recently-published crate called <a href=https://crates.io/crates/rasterize><code>rasterize</code></a>.<p>First of all, <code>rasterize</code> represents paths as a list of segments, not points, so we need a conversion function for that:<pre class=language-rust data-lang=rust style=color:#c0c5ce;background-color:#2b303b><code class=language-rust data-lang=rust><span style=color:#b48ead>fn </span><span style=color:#8fa1b3>mls_to_path</span><span>(</span><span style=color:#bf616a>mls</span><span>: MultiLineString&lt;</span><span style=color:#b48ead>f64</span><span>>) -> rasterize::Path {
+</span><span>    </span><span style=color:#b48ead>let</span><span> subpaths = mls
+</span><span>        .</span><span style=color:#96b5b4>into_iter</span><span>()
+</span><span>        .</span><span style=color:#96b5b4>filter_map</span><span>(|</span><span style=color:#bf616a>ls</span><span>| {
+</span><span>            SubPath::new(
+</span><span>                ls.</span><span style=color:#96b5b4>into_iter</span><span>()
+</span><span>                    .</span><span style=color:#96b5b4>map</span><span>(|</span><span style=color:#bf616a>p</span><span>| p.</span><span style=color:#96b5b4>x_y</span><span>())
+</span><span>                    .</span><span style=color:#96b5b4>tuple_windows</span><span>()
+</span><span>                    .</span><span style=color:#96b5b4>map</span><span>(|(</span><span style=color:#bf616a>p1</span><span>, </span><span style=color:#bf616a>p2</span><span>)| Segment::Line(Line::new(p1, p2)))
+</span><span>                    .</span><span style=color:#96b5b4>collect</span><span>(),
+</span><span>                </span><span style=color:#d08770>false</span><span>,
+</span><span>            )
+</span><span>        })
+</span><span>        .</span><span style=color:#96b5b4>collect</span><span>();
+</span><span>    rasterize::Path::new(subpaths)
+</span><span>}
+</span></code></pre><p>We also need to pick a couple of things:<ul><li>the view bounding box in map coordinates<li>the stroke style and color<li>a scale factor to apply, so that our output image size doesn't depend on the EPSG:3857 coordinates</ul><pre class=language-rust data-lang=rust style=color:#c0c5ce;background-color:#2b303b><code class=language-rust data-lang=rust><span style=color:#b48ead>struct </span><span>RasterizeOptions {
+</span><span>    </span><span style=color:#bf616a>rasterizer</span><span>: ActiveEdgeRasterizer,
+</span><span>    </span><span style=color:#bf616a>bbox</span><span>: BBox,
+</span><span>    </span><span style=color:#bf616a>transform</span><span>: Transform,
+</span><span>    </span><span style=color:#bf616a>stroke_color</span><span>: Arc&lt;LinColor>,
+</span><span>    </span><span style=color:#bf616a>stroke_style</span><span>: StrokeStyle,
+</span><span>}
+</span></code></pre><p>Then we can write a bit of code to rasterize a track and save the result to a file:<pre class=language-rust data-lang=rust style=color:#c0c5ce;background-color:#2b303b><code class=language-rust data-lang=rust><span style=color:#b48ead>fn </span><span style=color:#8fa1b3>rasterize_route</span><span>(
+</span><span>    </span><span style=color:#bf616a>options</span><span>: &RasterizeOptions,
+</span><span>    </span><span style=color:#bf616a>output</span><span>: File,
+</span><span>    </span><span style=color:#b48ead>mut </span><span style=color:#bf616a>mls</span><span>: MultiLineString&lt;</span><span style=color:#b48ead>f64</span><span>>,
+</span><span>) -> anyhow::Result&lt;()> {
+</span><span>    </span><span style=color:#96b5b4>reproject_mls</span><span>(&</span><span style=color:#b48ead>mut</span><span> mls);
+</span><span>    </span><span style=color:#b48ead>let</span><span> scene = Scene::stroke(
+</span><span>        Arc::new(</span><span style=color:#96b5b4>mls_to_path</span><span>(mls)),
+</span><span>        Arc::clone(&options.stroke_color) as Arc&lt;dyn Paint>,
+</span><span>        options.stroke_style,
+</span><span>    );
+</span><span>    </span><span style=color:#b48ead>let</span><span> layer = scene.</span><span style=color:#96b5b4>render</span><span>(
+</span><span>        &options.rasterizer,
+</span><span>        options.transform,
+</span><span>        Some(options.bbox),
+</span><span>        None,
+</span><span>    );
+</span><span>    layer.</span><span style=color:#96b5b4>write_png</span><span>(output)?;
+</span><span>    Ok(())
+</span><span>}
+</span></code></pre><p>The result looks like this (if it looks weird for you, it's because it has a transparent background):<p><a href=/assets/gps-track-rasterized.webp target=_blank><img src=/assets/gps-track-rasterized.webp></a><h2 id=accumulating-the-images>Accumulating the images</h2><p>At the end, I want to overlay all the tracks in the same image. We load the files from the previous step using <a href=https://crates.io/crates/png><code>png</code></a>, then accumulate them into a white layer:<pre class=language-rust data-lang=rust style=color:#c0c5ce;background-color:#2b303b><code class=language-rust data-lang=rust><span style=color:#b48ead>fn </span><span style=color:#8fa1b3>accumulate_images</span><span>(</span><span style=color:#bf616a>bbox</span><span>: BBox, </span><span style=color:#bf616a>images</span><span>: &[String]) -> anyhow::Result&lt;()> {
+</span><span>    </span><span style=color:#b48ead>let mut</span><span> layer = Layer::new(bbox, Some(LinColor::new(</span><span style=color:#d08770>1.0</span><span>, </span><span style=color:#d08770>1.0</span><span>, </span><span style=color:#d08770>1.0</span><span>, </span><span style=color:#d08770>1.0</span><span>)));
+</span><span>    </span><span style=color:#b48ead>let mut</span><span> buf = vec![</span><span style=color:#d08770>0</span><span>; layer.</span><span style=color:#96b5b4>width</span><span>() * layer.</span><span style=color:#96b5b4>height</span><span>() * </span><span style=color:#d08770>4</span><span>];
+</span><span>    </span><span style=color:#b48ead>for</span><span> img in images {
+</span><span>        {
+</span><span>            </span><span style=color:#b48ead>let</span><span> decoder = Decoder::new(File::open(&img)?);
+</span><span>            </span><span style=color:#b48ead>let mut</span><span> reader = decoder.</span><span style=color:#96b5b4>read_info</span><span>()?;
+</span><span>            </span><span style=color:#b48ead>let</span><span> info = reader.</span><span style=color:#96b5b4>next_frame</span><span>(&</span><span style=color:#b48ead>mut</span><span> buf)?;
+</span><span>            layer
+</span><span>                .</span><span style=color:#96b5b4>iter_mut</span><span>()
+</span><span>                .</span><span style=color:#96b5b4>zip</span><span>((&buf[..info.</span><span style=color:#96b5b4>buffer_size</span><span>()]).</span><span style=color:#96b5b4>chunks</span><span>(</span><span style=color:#d08770>4</span><span>))
+</span><span>                .</span><span style=color:#96b5b4>for_each</span><span>(|(</span><span style=color:#bf616a>pa</span><span>, </span><span style=color:#bf616a>p</span><span>)| {
+</span><span>                    </span><span style=color:#b48ead>let</span><span> p = &p[..</span><span style=color:#d08770>4</span><span>];
+</span><span>                    *pa = pa.</span><span style=color:#96b5b4>blend_over</span><span>(&ColorU8::new(p[</span><span style=color:#d08770>0</span><span>], p[</span><span style=color:#d08770>1</span><span>], p[</span><span style=color:#d08770>2</span><span>], p[</span><span style=color:#d08770>3</span><span>]).</span><span style=color:#96b5b4>into</span><span>());
+</span><span>                });
+</span><span>        }
+</span><span>        </span><span style=color:#b48ead>let</span><span> file = File::create(img)?;
+</span><span>        layer.</span><span style=color:#96b5b4>write_png</span><span>(file)?;
+</span><span>    }
+</span><span>    Ok(())
+</span><span>}
+</span></code></pre><p>The bleding operator (<code>blend_over</code>, from <code>rasterize</code>) keeps the existing pixels and only overwrites the transparent ones.<h2 id=putting-it-together>Putting it together</h2><p>Skipping over argument parsing and other initializations, we can finally read the archive and save the FlatGeobuf file:<pre class=language-rust data-lang=rust style=color:#c0c5ce;background-color:#2b303b><code class=language-rust data-lang=rust><span style=color:#b48ead>let mut</span><span> points = import::read_archive(archive)?;
+</span><span style=color:#96b5b4>export_fgb</span><span>("</span><span style=color:#a3be8c>location</span><span>", &archive.</span><span style=color:#96b5b4>with_extension</span><span>("</span><span style=color:#a3be8c>fgb</span><span>"), &points)?;
+</span><span>points.</span><span style=color:#96b5b4>sort_unstable_by_key</span><span>(|</span><span style=color:#bf616a>p</span><span>| p.time);
+</span></code></pre><p>We then filter out the bad points and group them by date:<pre class=language-rust data-lang=rust style=color:#c0c5ce;background-color:#2b303b><code class=language-rust data-lang=rust><span style=color:#b48ead>let</span><span> points = points
+</span><span>    .</span><span style=color:#96b5b4>into_iter</span><span>()
+</span><span>    .</span><span style=color:#96b5b4>filter</span><span>(|</span><span style=color:#bf616a>p</span><span>| p.radius &lt; </span><span style=color:#d08770>50.0</span><span>)
+</span><span>    .</span><span style=color:#96b5b4>group_by</span><span>(|</span><span style=color:#bf616a>p</span><span>| p.time.</span><span style=color:#96b5b4>date</span><span>())
+</span><span>    .</span><span style=color:#96b5b4>into_iter</span><span>()
+</span><span>    .</span><span style=color:#96b5b4>map</span><span>(|(</span><span style=color:#bf616a>d</span><span>, </span><span style=color:#bf616a>p</span><span>)| (d, p.collect::&lt;Vec&lt;_>>()))
+</span><span>    .collect::&lt;Vec&lt;_>>();
+</span></code></pre><p>Run them through OSRM:<pre class=language-rust data-lang=rust style=color:#c0c5ce;background-color:#2b303b><code class=language-rust data-lang=rust><span style=color:#b48ead>let</span><span> osrm_client = osrm::OsrmClient::new("</span><span style=color:#a3be8c>http://127.0.0.1:5000/</span><span>".</span><span style=color:#96b5b4>to_string</span><span>());
+</span><span style=color:#b48ead>let</span><span> routes = points
+</span><span>    .</span><span style=color:#96b5b4>into_par_iter</span><span>()
+</span><span>    .</span><span style=color:#96b5b4>filter_map</span><span>(|(</span><span style=color:#bf616a>date</span><span>, </span><span style=color:#bf616a>points</span><span>)| {
+</span><span>        osrm_client
+</span><span>            .</span><span style=color:#96b5b4>match_map</span><span>("</span><span style=color:#a3be8c>foot</span><span>", &points)
+</span><span>            .</span><span style=color:#96b5b4>ok</span><span>()
+</span><span>            .</span><span style=color:#96b5b4>map</span><span>(|</span><span style=color:#bf616a>m</span><span>| (date, m))
+</span><span>    })
+</span><span>    .collect::&lt;Vec&lt;_>>();
+</span></code></pre><p>I'm using <a href=https://crates.io/crates/rayon><code>rayon</code></a> here in order to do multiple requests to OSRM at once. It would be very inconsiderate to do this against another server, but I'm running my own instance in Docker.<p>Rasterize the routes for every date into a corresponding image:<pre class=language-rust data-lang=rust style=color:#c0c5ce;background-color:#2b303b><code class=language-rust data-lang=rust><span style=color:#b48ead>let mut</span><span> images = routes
+</span><span>    .</span><span style=color:#96b5b4>into_par_iter</span><span>()
+</span><span>    .</span><span style=color:#96b5b4>map</span><span>(|(</span><span style=color:#bf616a>date</span><span>, </span><span style=color:#bf616a>mls</span><span>)| {
+</span><span>        </span><span style=color:#b48ead>let</span><span> raster_name = format!("</span><span style=color:#d08770>{date}</span><span style=color:#a3be8c>.png</span><span>");
+</span><span>        </span><span style=color:#b48ead>let</span><span> file = File::create(&raster_name)?;
+</span><span>        </span><span style=color:#96b5b4>rasterize_route</span><span>(&rasterize_options, file, mls)?;
+</span><span>        Ok(raster_name)
+</span><span>    })
+</span><span>    .collect::&lt;Result&lt;Vec&lt;_>, Error>>()?;
+</span></code></pre><p>Again, this uses <code>rayon</code> for parallelization. Since I mentioned the memory usage before, there is one subtle issue here. Every running thread will rasterize some tracks into a layer, so the memory usage will depend on the available concurrency. If some computation takes, say, 1 GB RAM, that's not too bad until you start 32 of them at once. So remember to pair CPUs with many cores with an appropriate amount of RAM, even if it sits mostly unused.<p>Then we finally run the accumulation step:<pre class=language-rust data-lang=rust style=color:#c0c5ce;background-color:#2b303b><code class=language-rust data-lang=rust><span>images.</span><span style=color:#96b5b4>sort_unstable</span><span>();
+</span><span style=color:#96b5b4>accumulate_images</span><span>(bbox, &images)?;
+</span></code></pre><p>And just one thing left to do:<pre class=language-bash data-lang=bash style=color:#c0c5ce;background-color:#2b303b><code class=language-bash data-lang=bash><span style=color:#bf616a>$</span><span> ffmpeg</span><span style=color:#bf616a> -framerate</span><span> 15</span><span style=color:#bf616a> -pattern_type</span><span> glob</span><span style=color:#bf616a> -i </span><span>'</span><span style=color:#a3be8c>*.png</span><span>'</span><span style=color:#bf616a> -c</span><span>:v libwebp_anim</span><span style=color:#bf616a> -lossless</span><span> 1</span><span style=color:#bf616a> -quality</span><span> 100 gps_tracks.webp
+</span></code></pre><p>You can see the result below:<p><a href=/assets/gps-tracks.webp target=_blank><img src=/assets/gps-tracks.webp></a><h2 id=performance>Performance</h2><p>I've only done rough measurements, but the whole process (except running <code>ffmpeg</code> at the end) takes 4.5 seconds on my system. Replacing <code>into_par_iter</code> with <code>into_iter</code> brings that up to 10.5 seconds.<p>Out of the 4.5 s, calling into OSRM takes 1.3 s (6.5 s serially). The rest of the time is spent in rasterization (which is quite fast), and PNG compression and decompression.<h2 id=closing-words>Closing words</h2><p>If you've followed through, thank you for reading. You can find the code <a href=https://github.com/lnicola/walker>on GitHub</a>. Props also to the <a href=https://georust.org/>GeoRust</a> community, which owns all the geospatial-related crates I've used here.<p><em>Map data from <a href=https://openstreetmap.org/copyright>OpenStreetMap</a></em></div></div>

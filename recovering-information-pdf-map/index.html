@@ -1,0 +1,205 @@
+<!doctype html><html lang=en><head><meta charset=utf-8><meta content="width=device-width,initial-scale=1.0,maximum-scale=1,viewport-fit=cover" name=viewport><title>Recovering information from a PDF map</title><link href=/print.css media=print rel=stylesheet><link href=/poole.css rel=stylesheet><link href=/hyde.css rel=stylesheet><link href=https://blog.dend.ro/atom.xml rel=alternate title=RSS type=application/atom+xml><link href=https://mapstodon.space/@lnicola rel=me><body><div class=sidebar><div class="container sidebar-sticky"><div class=sidebar-about><a href=https://blog.dend.ro/><h1></h1></a></div><ul class=sidebar-nav><li class=sidebar-nav-item><a href=/>Home</a><li class=sidebar-nav-item><a href=/content/talks/>Talks</a><li class=sidebar-nav-item><a href=/content/blogroll/>Blogroll</a><li class=sidebar-nav-item><a href=/content/acknowledgements/>Acknowledgements</a><li class=sidebar-nav-item><a href=https://www.buymeacoffee.com/lnicolaq>Buy me a ☕</a></ul></div></div><div class="content container"><div class=post><h1 class=post-title>Recovering information from a PDF map</h1><span class=post-date>2023-02-23</span><p>This post is going to be about a question that recently came up in the <a href=https://matrix.to/#/#gdal:osgeo.org>GDAL Matrix room</a>. A user had a discrete heat map of noise levels in their town as a PDF, and wanted to extract some usable information out of it. Let's see if we can help them.<h2 id=looking-at-the-data>Looking at the data</h2><p>If you want to play along, you can download the file from <a href=https://hartiacustice.pmb.ro/page/hstrat>here</a>. Pick the <a href=https://hartiacustice.pmb.ro/docs/harti/3.1_harti_strategice_de_zgomot_drumuri/drumuri_Lzsn.pdf>first one</a>, with <code>Lzsn</code> in its name. It's a 42 MB PDF, looking like this (click on the image for a better version):<p><a href=/assets/lzsn-sample.webp target=_blank><img src=/assets/lzsn-sample-med.webp></a><p>If that seems unreadable, it's partly because <a href=https://wiki.gnome.org/Apps/Evince>my PDF viewer</a> can't zoom into large documents. A better choice is probably <a href=https://qgis.org/>QGIS</a>, so you can install it.<p><a href=/assets/lzsn-better-sample.webp target=_blank><img src=/assets/lzsn-better-sample-med.webp></a><p>This would probably make a real cartographer unhappy, but fortunately I'm not one. And yes, some labels are doubled, don't ask me why. It happens in Evince, Okular and QGIS, but I don't have a "real" PDF reader to test with.<p>If you're following along, you might have noticed that QGIS took about 20 minutes to open the file and probably just as long to close it. That's not great and puts our software in a bad light, so let's convert it to a better format.<p>Using <a href=https://gdal.org/>GDAL</a>, you can convert it to a GeoTIFF like this:<pre class=language-bash data-lang=bash style=color:#c0c5ce;background-color:#2b303b><code class=language-bash data-lang=bash><span style=color:#bf616a>$</span><span> gdal_translate drumuri_Lzsn.pdf drumuri_Lzsn_temp.tif
+</span><span style=color:#bf616a>$</span><span> gdal_translate</span><span style=color:#bf616a> -f</span><span> COG</span><span style=color:#bf616a> -co</span><span> NUM_THREADS=ALL_CPUS drumuri_Lzsn_temp.tif drumuri_Lzsn.tif
+</span></code></pre><p>A <a href=https://www.cogeo.org/>COG</a> is just a GeoTIFF laid out so it can load faster while zooming in. If you're wondering why I'm doing the conversion in two steps, it just happens to be very slow otherwise, while the commands above should only take a couple of seconds. COGs are tiled (stored in blocks), and going from a striped (stored by lines) to a tiled layout can be slow, but I don't think that's the case for our PDF. Anyway, once you have a TIFF, QGIS should be quite snappy.<h2 id=extracting-the-image>Extracting the image</h2><p>The user would like to have a nice vector dataset, and overlay it on top of <a href=https://www.openstreetmap.org/>OpenStreetMap</a>. This means that we're not really interested in the roads, road labels and building footprints, which are already available there.<p>I initially missed this, but the user pointed out that the roads in the PDF seem to be stored in a vector format. Maybe there's a chance we can get rid of them?<p>After some searching, I found the <code>pdfimages</code> tool, part of Poppler.<pre class=language-bash data-lang=bash style=color:#c0c5ce;background-color:#2b303b><code class=language-bash data-lang=bash><span style=color:#bf616a>$</span><span> pdfimages</span><span style=color:#bf616a> -list</span><span> drumuri_Lzsn.pdf
+</span><span style=color:#bf616a>page</span><span>   num  type   width height color comp bpc  enc interp  object ID x-ppi y-ppi size ratio
+</span><span style=color:#bf616a>--------------------------------------------------------------------------------------------
+</span><span>   </span><span style=color:#bf616a>1</span><span>     0 image   16377 12649  rgb     3   8  jpeg   no         7  0   200   200 39.7M 6.7%
+</span></code></pre><p>This sounds promising, as we have a large image which we can extract. It's a JPEG, which might cause us some problems later, but we'll cross that bridge when we get there.<pre class=language-bash data-lang=bash style=color:#c0c5ce;background-color:#2b303b><code class=language-bash data-lang=bash><span style=color:#bf616a>$</span><span> pdfimages</span><span style=color:#bf616a> -j</span><span> drumuri_Lzsn.pdf drumuri_Lzsn
+</span><span style=color:#bf616a>$</span><span> ls</span><span style=color:#bf616a> -lh</span><span> drumuri_Lzsn*.jpg
+</span><span style=color:#bf616a>-rw-r--r--</span><span> 1 user group 40M Feb 21 19:04 drumuri-Lzsn.jpg
+</span><span style=color:#bf616a>$</span><span> gdal_translate</span><span style=color:#bf616a> -f</span><span> COG</span><span style=color:#bf616a> -co</span><span> NUM_THREADS=ALL_CPUS drumuri-Lzsn.jpg drumuri_Lzsn-data.tif
+</span></code></pre><p>Yes, GDAL can read JPEG, that's pretty nifty. Let's see what we got:<p><a href=/assets/lzsn-data-overview.webp target=_blank><img src=/assets/lzsn-data-overview-med.webp></a><p>Yup, we still have the legend and other stuff on the right, and we can reasonably suspect that our map was scanned. But is it at least cleaner?<p><a href=/assets/lzsn-data-detail.webp target=_blank><img src=/assets/lzsn-data-detail-med.webp></a><p>Success — it looks like we're on the right track! We still have the building footprints, but the labels are gone. We won't miss them.<h2 id=georeferencing>Georeferencing</h2><p>Unfortunately, if we open both images in QGIS, they won't show up in the same place. This is because the one we extracted is missing the georeferencing and projection information. To put it differently, QGIS doesn't know where the image is located, its orientation and how large a pixel is on the ground.<p>The original PDF had this information, and it was propagated to the TIFF we made from it:<pre class=language-bash data-lang=bash style=color:#c0c5ce;background-color:#2b303b><code class=language-bash data-lang=bash><span style=color:#bf616a>$</span><span> gdalinfo drumuri_Lzsn.tif
+</span><span style=color:#bf616a>Driver:</span><span> GTiff/GeoTIFF
+</span><span style=color:#bf616a>Files:</span><span> drumuri_Lzsn.tif
+</span><span style=color:#bf616a>Size</span><span> is 12992, 9448
+</span><span style=color:#bf616a>Coordinate</span><span> System is:
+</span><span style=color:#bf616a>PROJCRS[</span><span>"</span><span style=color:#a3be8c>WGS 84 / Pseudo-Mercator</span><span>"</span><span style=color:#bf616a>,
+</span><span>    </span><span style=color:#bf616a>BASEGEOGCRS[</span><span>"</span><span style=color:#a3be8c>WGS 84</span><span>"</span><span style=color:#bf616a>,
+</span><span>        </span><span style=color:#bf616a>ENSEMBLE[</span><span>"</span><span style=color:#a3be8c>World Geodetic System 1984 ensemble</span><span>"</span><span style=color:#bf616a>,
+</span><span>            </span><span style=color:#bf616a>MEMBER[</span><span>"</span><span style=color:#a3be8c>World Geodetic System 1984 (Transit)</span><span>"</span><span style=color:#bf616a>],
+</span><span>            </span><span style=color:#bf616a>MEMBER[</span><span>"</span><span style=color:#a3be8c>World Geodetic System 1984 (G730)</span><span>"</span><span style=color:#bf616a>],
+</span><span>            </span><span style=color:#bf616a>MEMBER[</span><span>"</span><span style=color:#a3be8c>World Geodetic System 1984 (G873)</span><span>"</span><span style=color:#bf616a>],
+</span><span>            </span><span style=color:#bf616a>MEMBER[</span><span>"</span><span style=color:#a3be8c>World Geodetic System 1984 (G1150)</span><span>"</span><span style=color:#bf616a>],
+</span><span>            </span><span style=color:#bf616a>MEMBER[</span><span>"</span><span style=color:#a3be8c>World Geodetic System 1984 (G1674)</span><span>"</span><span style=color:#bf616a>],
+</span><span>            </span><span style=color:#bf616a>MEMBER[</span><span>"</span><span style=color:#a3be8c>World Geodetic System 1984 (G1762)</span><span>"</span><span style=color:#bf616a>],
+</span><span>            </span><span style=color:#bf616a>MEMBER[</span><span>"</span><span style=color:#a3be8c>World Geodetic System 1984 (G2139)</span><span>"</span><span style=color:#bf616a>],
+</span><span>            </span><span style=color:#bf616a>ELLIPSOID[</span><span>"</span><span style=color:#a3be8c>WGS 84</span><span>"</span><span style=color:#bf616a>,6378137,298.257223563,
+</span><span>                </span><span style=color:#bf616a>LENGTHUNIT[</span><span>"</span><span style=color:#a3be8c>metre</span><span>"</span><span style=color:#bf616a>,1]],
+</span><span>            </span><span style=color:#bf616a>ENSEMBLEACCURACY[2.0]],
+</span><span>        </span><span style=color:#bf616a>PRIMEM[</span><span>"</span><span style=color:#a3be8c>Greenwich</span><span>"</span><span style=color:#bf616a>,0,
+</span><span>            </span><span style=color:#bf616a>ANGLEUNIT[</span><span>"</span><span style=color:#a3be8c>degree</span><span>"</span><span style=color:#bf616a>,0.0174532925199433]],
+</span><span>        </span><span style=color:#bf616a>ID[</span><span>"</span><span style=color:#a3be8c>EPSG</span><span>"</span><span style=color:#bf616a>,4326]],
+</span><span>    </span><span style=color:#bf616a>CONVERSION[</span><span>"</span><span style=color:#a3be8c>Popular Visualisation Pseudo-Mercator</span><span>"</span><span style=color:#bf616a>,
+</span><span>        </span><span style=color:#bf616a>METHOD[</span><span>"</span><span style=color:#a3be8c>Popular Visualisation Pseudo Mercator</span><span>"</span><span style=color:#bf616a>,
+</span><span>            </span><span style=color:#bf616a>ID[</span><span>"</span><span style=color:#a3be8c>EPSG</span><span>"</span><span style=color:#bf616a>,1024]],
+</span><span>        </span><span style=color:#bf616a>PARAMETER[</span><span>"</span><span style=color:#a3be8c>Latitude of natural origin</span><span>"</span><span style=color:#bf616a>,0,
+</span><span>            </span><span style=color:#bf616a>ANGLEUNIT[</span><span>"</span><span style=color:#a3be8c>degree</span><span>"</span><span style=color:#bf616a>,0.0174532925199433],
+</span><span>            </span><span style=color:#bf616a>ID[</span><span>"</span><span style=color:#a3be8c>EPSG</span><span>"</span><span style=color:#bf616a>,8801]],
+</span><span>        </span><span style=color:#bf616a>PARAMETER[</span><span>"</span><span style=color:#a3be8c>Longitude of natural origin</span><span>"</span><span style=color:#bf616a>,0,
+</span><span>            </span><span style=color:#bf616a>ANGLEUNIT[</span><span>"</span><span style=color:#a3be8c>degree</span><span>"</span><span style=color:#bf616a>,0.0174532925199433],
+</span><span>            </span><span style=color:#bf616a>ID[</span><span>"</span><span style=color:#a3be8c>EPSG</span><span>"</span><span style=color:#bf616a>,8802]],
+</span><span>        </span><span style=color:#bf616a>PARAMETER[</span><span>"</span><span style=color:#a3be8c>False easting</span><span>"</span><span style=color:#bf616a>,0,
+</span><span>            </span><span style=color:#bf616a>LENGTHUNIT[</span><span>"</span><span style=color:#a3be8c>metre</span><span>"</span><span style=color:#bf616a>,1],
+</span><span>            </span><span style=color:#bf616a>ID[</span><span>"</span><span style=color:#a3be8c>EPSG</span><span>"</span><span style=color:#bf616a>,8806]],
+</span><span>        </span><span style=color:#bf616a>PARAMETER[</span><span>"</span><span style=color:#a3be8c>False northing</span><span>"</span><span style=color:#bf616a>,0,
+</span><span>            </span><span style=color:#bf616a>LENGTHUNIT[</span><span>"</span><span style=color:#a3be8c>metre</span><span>"</span><span style=color:#bf616a>,1],
+</span><span>            </span><span style=color:#bf616a>ID[</span><span>"</span><span style=color:#a3be8c>EPSG</span><span>"</span><span style=color:#bf616a>,8807]]],
+</span><span>    </span><span style=color:#bf616a>CS[Cartesian,2],
+</span><span>        </span><span style=color:#bf616a>AXIS[</span><span>"</span><span style=color:#a3be8c>easting (X)</span><span>"</span><span style=color:#bf616a>,east,
+</span><span>            </span><span style=color:#bf616a>ORDER[1],
+</span><span>            </span><span style=color:#bf616a>LENGTHUNIT[</span><span>"</span><span style=color:#a3be8c>metre</span><span>"</span><span style=color:#bf616a>,1]],
+</span><span>        </span><span style=color:#bf616a>AXIS[</span><span>"</span><span style=color:#a3be8c>northing (Y)</span><span>"</span><span style=color:#bf616a>,north,
+</span><span>            </span><span style=color:#bf616a>ORDER[2],
+</span><span>            </span><span style=color:#bf616a>LENGTHUNIT[</span><span>"</span><span style=color:#a3be8c>metre</span><span>"</span><span style=color:#bf616a>,1]],
+</span><span>    </span><span style=color:#bf616a>USAGE[
+</span><span>        </span><span style=color:#bf616a>SCOPE[</span><span>"</span><span style=color:#a3be8c>Web mapping and visualisation.</span><span>"</span><span style=color:#bf616a>],
+</span><span>        </span><span style=color:#bf616a>AREA[</span><span>"</span><span style=color:#a3be8c>World between 85.06°S and 85.06°N.</span><span>"</span><span style=color:#bf616a>],
+</span><span>        </span><span style=color:#bf616a>BBOX[-85.06,-180,85.06,180]],
+</span><span>    </span><span style=color:#bf616a>ID[</span><span>"</span><span style=color:#a3be8c>EPSG</span><span>"</span><span style=color:#bf616a>,3857]]
+</span><span style=color:#bf616a>Data</span><span> axis to CRS axis mapping: 1,2
+</span><span style=color:#bf616a>Origin</span><span> = (2886267.104982524644583,5550384.975221752189100)
+</span><span style=color:#bf616a>Pixel</span><span> Size = (3.554565159517144,-3.554573706431164)
+</span><span style=color:#bf616a>Metadata:
+</span><span>  </span><span style=color:#bf616a>AREA_OR_POINT</span><span>=</span><span style=color:#a3be8c>Area
+</span><span>  </span><span style=color:#bf616a>CREATION_DATE</span><span>=</span><span style=color:#a3be8c>D:20180606221414
+</span><span>  </span><span style=color:#bf616a>CREATOR</span><span>=</span><span style=color:#a3be8c>þÿ
+</span><span>  </span><span style=color:#bf616a>NEATLINE</span><span>=</span><span style=color:#a3be8c>POLYGON </span><span>((</span><span style=color:#d08770>2886267</span><span>.</span><span style=color:#d08770>10498252 5550384</span><span>.</span><span style=color:#d08770>38278758</span><span>,</span><span style=color:#d08770>2886267</span><span>.</span><span style=color:#d08770>10498252 5516801</span><span>.</span><span style=color:#d08770>36284339</span><span>,</span><span style=color:#d08770>2932447</span><span>.</span><span style=color:#d08770>42309224 5516801</span><span>.</span><span style=color:#d08770>36284339</span><span>,</span><span style=color:#d08770>2932447</span><span>.</span><span style=color:#d08770>42309224 5550384</span><span>.</span><span style=color:#d08770>38278758</span><span>,</span><span style=color:#d08770>2886267</span><span>.</span><span style=color:#d08770>10498252 5550384</span><span>.</span><span style=color:#d08770>38278758</span><span>))
+</span><span>  </span><span style=color:#bf616a>PRODUCER</span><span>=</span><span style=color:#a3be8c>Qt </span><span style=color:#bf616a>4.8.5</span><span> (C) </span><span style=color:#bf616a>2011</span><span> Nokia Corporation and/or its subsidiary(-ies)
+</span><span>  </span><span style=color:#bf616a>TITLE</span><span>=</span><span style=color:#a3be8c>þÿ
+</span><span style=color:#bf616a>Image</span><span> Structure Metadata:
+</span><span>  </span><span style=color:#bf616a>COMPRESSION</span><span>=</span><span style=color:#a3be8c>LZW
+</span><span>  </span><span style=color:#bf616a>INTERLEAVE</span><span>=</span><span style=color:#a3be8c>PIXEL
+</span><span>  </span><span style=color:#bf616a>LAYOUT</span><span>=</span><span style=color:#a3be8c>COG
+</span><span style=color:#bf616a>Corner</span><span> Coordinates:
+</span><span style=color:#bf616a>Upper</span><span> Left  ( 2886267.105, 5550384.975) ( </span><span style=color:#bf616a>25d55</span><span>'</span><span style=color:#a3be8c>40.00"E, 44d32</span><span>'</span><span style=color:#bf616a>46.88</span><span>"</span><span style=color:#a3be8c>N)
+</span><span style=color:#a3be8c>Lower Left  ( 2886267.105, 5516801.363) ( 25d55'40.00</span><span>"</span><span style=color:#bf616a>E,</span><span> 44d19'</span><span style=color:#a3be8c>51.43"N)
+</span><span style=color:#a3be8c>Upper Right ( 2932448.016, 5550384.975) ( 26d20</span><span>'33.46"</span><span style=color:#a3be8c>E, 44d32'46.88</span><span>"N)
+</span><span style=color:#bf616a>Lower</span><span> Right ( 2932448.016, 5516801.363) ( </span><span style=color:#bf616a>26d20</span><span>'</span><span style=color:#a3be8c>33.46"E, 44d19</span><span>'</span><span style=color:#bf616a>51.43</span><span>"</span><span style=color:#a3be8c>N)
+</span><span style=color:#a3be8c>Center      ( 2909357.560, 5533593.169) ( 26d 8' 6.73</span><span>"</span><span style=color:#bf616a>E,</span><span> 44d26'</span><span style=color:#a3be8c>19.51"N)
+</span><span style=color:#a3be8c>Band 1 Block=512x512 Type=Byte, ColorInterp=Red
+</span><span style=color:#a3be8c>  Min=0.000 Max=255.000 
+</span><span style=color:#a3be8c>  Minimum=0.000, Maximum=255.000, Mean=222.565, StdDev=77.753
+</span><span style=color:#a3be8c>  Overviews: 6496x4724, 3248x2362, 1624x1181, 812x590, 406x295
+</span><span style=color:#a3be8c>  Metadata:
+</span><span style=color:#a3be8c>    STATISTICS_APPROXIMATE=YES
+</span><span style=color:#a3be8c>    STATISTICS_MAXIMUM=255
+</span><span style=color:#a3be8c>    STATISTICS_MEAN=222.56487158937
+</span><span style=color:#a3be8c>    STATISTICS_MINIMUM=0
+</span><span style=color:#a3be8c>    STATISTICS_STDDEV=77.753237328653
+</span><span style=color:#a3be8c>    STATISTICS_VALID_PERCENT=100
+</span><span style=color:#a3be8c>Band 2 Block=512x512 Type=Byte, ColorInterp=Green
+</span><span style=color:#a3be8c>  Min=0.000 Max=255.000 
+</span><span style=color:#a3be8c>  Minimum=0.000, Maximum=255.000, Mean=214.219, StdDev=83.659
+</span><span style=color:#a3be8c>  Overviews: 6496x4724, 3248x2362, 1624x1181, 812x590, 406x295
+</span><span style=color:#a3be8c>  Metadata:
+</span><span style=color:#a3be8c>    STATISTICS_APPROXIMATE=YES
+</span><span style=color:#a3be8c>    STATISTICS_MAXIMUM=255
+</span><span style=color:#a3be8c>    STATISTICS_MEAN=214.21891418763
+</span><span style=color:#a3be8c>    STATISTICS_MINIMUM=0
+</span><span style=color:#a3be8c>    STATISTICS_STDDEV=83.65912385424
+</span><span style=color:#a3be8c>    STATISTICS_VALID_PERCENT=100
+</span><span style=color:#a3be8c>Band 3 Block=512x512 Type=Byte, ColorInterp=Blue
+</span><span style=color:#a3be8c>  Min=0.000 Max=255.000 
+</span><span style=color:#a3be8c>  Minimum=0.000, Maximum=255.000, Mean=211.690, StdDev=87.032
+</span><span style=color:#a3be8c>  Overviews: 6496x4724, 3248x2362, 1624x1181, 812x590, 406x295
+</span><span style=color:#a3be8c>  Metadata:
+</span><span style=color:#a3be8c>    STATISTICS_APPROXIMATE=YES
+</span><span style=color:#a3be8c>    STATISTICS_MAXIMUM=255
+</span><span style=color:#a3be8c>    STATISTICS_MEAN=211.69040207532
+</span><span style=color:#a3be8c>    STATISTICS_MINIMUM=0
+</span><span style=color:#a3be8c>    STATISTICS_STDDEV=87.03195681233
+</span><span style=color:#a3be8c>    STATISTICS_VALID_PERCENT=100
+</span></code></pre><p>You can see it's using EPSG:3857 "Web Mercator" as the coordinate reference system. This tells QGIS and other software how to convert the coordinates in the image to latitude and longitude on the globe. Just below we also have the corner coordinates and pixel spacing (size), which is about 3.55 meters or 3.89 yards.<p>But the image we extracted using <code>pdfimages</code> doesn't have this information:<pre class=language-bash data-lang=bash style=color:#c0c5ce;background-color:#2b303b><code class=language-bash data-lang=bash><span style=color:#bf616a>$</span><span> gdalinfo drumuri_Lzsn-data.tif 
+</span><span style=color:#bf616a>Driver:</span><span> GTiff/GeoTIFF
+</span><span style=color:#bf616a>Files:</span><span> drumuri_Lzsn-data.tif
+</span><span style=color:#bf616a>Size</span><span> is 16377, 12649
+</span><span style=color:#bf616a>Image</span><span> Structure Metadata:
+</span><span>  </span><span style=color:#bf616a>COMPRESSION</span><span>=</span><span style=color:#a3be8c>LZW
+</span><span>  </span><span style=color:#bf616a>INTERLEAVE</span><span>=</span><span style=color:#a3be8c>PIXEL
+</span><span>  </span><span style=color:#bf616a>LAYOUT</span><span>=</span><span style=color:#a3be8c>COG
+</span><span style=color:#bf616a>Corner</span><span> Coordinates:
+</span><span style=color:#bf616a>Upper</span><span> Left  (    0.0,    0.0)
+</span><span style=color:#bf616a>Lower</span><span> Left  (    0.0,12649.0)
+</span><span style=color:#bf616a>Upper</span><span> Right (16377.0,    0.0)
+</span><span style=color:#bf616a>Lower</span><span> Right (16377.0,12649.0)
+</span><span style=color:#bf616a>Center</span><span>      ( 8188.5, 6324.5)
+</span><span style=color:#bf616a>Band</span><span> 1 Block=512x512 Type=Byte, ColorInterp=Red
+</span><span>  </span><span style=color:#bf616a>Overviews:</span><span> 8189x6325, 4095x3163, 2048x1582
+</span><span style=color:#bf616a>Band</span><span> 2 Block=512x512 Type=Byte, ColorInterp=Green
+</span><span>  </span><span style=color:#bf616a>Overviews:</span><span> 8189x6325, 4095x3163, 2048x1582
+</span><span style=color:#bf616a>Band</span><span> 3 Block=512x512 Type=Byte, ColorInterp=Blue
+</span><span>  </span><span style=color:#bf616a>Overviews:</span><span> 8189x6325, 4095x3163, 2048x1582
+</span></code></pre><p>So what do we do? Can we copy it from the original one? Sure, and it's quite easy!<pre class=language-bash data-lang=bash style=color:#c0c5ce;background-color:#2b303b><code class=language-bash data-lang=bash><span style=color:#bf616a>$</span><span> python
+</span><span style=color:#bf616a>Python</span><span> 3.10.9 (main, Dec 24 2022, 19:48:26) </span><span style=color:#bf616a>[GCC</span><span> 12.2.0] on linux
+</span><span style=color:#bf616a>Type </span><span>"</span><span style=color:#a3be8c>help</span><span>", "</span><span style=color:#a3be8c>copyright</span><span>", "</span><span style=color:#a3be8c>credits</span><span>" or "</span><span style=color:#a3be8c>license</span><span>" for more information.
+</span><span>>>> from </span><span style=color:#bf616a>osgeo</span><span> import gdal
+</span><span>>>> image = </span><span style=color:#bf616a>gdal.Open</span><span>("</span><span style=color:#a3be8c>drumuri_Lzsn-data.tif</span><span>")
+</span><span>>>> reference = </span><span style=color:#bf616a>gdal.Open</span><span>("</span><span style=color:#a3be8c>drumuri_Lzsn.tif</span><span>")
+</span><span>>>> reference.GetProjection() </span><span style=color:#65737e># just to check
+</span><span>'</span><span style=color:#a3be8c>PROJCS["WGS 84 / Pseudo-Mercator",GEOGCS["WGS 84",DATUM["WGS_1984",SPHEROID["WGS 84",6378137,298.257223563,AUTHORITY["EPSG","7030"]],AUTHORITY["EPSG","6326"]],PRIMEM["Greenwich",0,AUTHORITY["EPSG","8901"]],UNIT["degree",0.0174532925199433,AUTHORITY["EPSG","9122"]],AUTHORITY["EPSG","4326"]],PROJECTION["Mercator_1SP"],PARAMETER["central_meridian",0],PARAMETER["scale_factor",1],PARAMETER["false_easting",0],PARAMETER["false_northing",0],UNIT["metre",1,AUTHORITY["EPSG","9001"]],AXIS["Easting",EAST],AXIS["Northing",NORTH],EXTENSION["PROJ4","+proj=merc +a=6378137 +b=6378137 +lat_ts=0 +lon_0=0 +x_0=0 +y_0=0 +k=1 +units=m +nadgrids=@null +wktext +no_defs"],AUTHORITY["EPSG","3857"]]</span><span>'
+</span><span>>>> reference.GetGeoTransform() </span><span style=color:#65737e># just to check
+</span><span>(</span><span style=color:#bf616a>2886267.1049825246,</span><span> 3.5545651595171437, 0.0, 5550384.975221752, 0.0,</span><span style=color:#bf616a> -3</span><span>.5545737064311638)
+</span><span>>>> image.SetProjection(</span><span style=color:#8fa1b3>reference.GetProjection</span><span>())
+</span><span>0
+</span><span>>>> image.SetGeoTransform(</span><span style=color:#8fa1b3>reference.GetGeoTransform</span><span>())
+</span><span>0
+</span><span>>>> image.FlushCache() </span><span style=color:#65737e># write our changes to disk
+</span><span>
+</span><span>$ gdalinfo drumuri_Lzsn-data.tif
+</span><span>Driver: GTiff/GeoTIFF
+</span><span>Files: drumuri_Lzsn-data.tif
+</span><span>       drumuri_Lzsn-data.tif.aux.xml
+</span><span>Size is 16377, 12649
+</span><span>Coordinate System is:
+</span><span>PROJCRS["WGS 84 / Pseudo-Mercator",
+</span><span>    BASEGEOGCRS["WGS 84",
+</span><span>        DATUM["World Geodetic System 1984",
+</span><span>            ELLIPSOID["WGS 84",6378137,298.257223563,
+</span><span>                LENGTHUNIT["metre",1]]],
+</span><span>        PRIMEM["Greenwich",0,
+</span><span>            ANGLEUNIT["degree",0.0174532925199433]],
+</span><span>        ID["EPSG",4326]],
+</span><span>    CONVERSION["unnamed",
+</span><span>        METHOD["Popular Visualisation Pseudo Mercator",
+</span><span>            ID["EPSG",1024]],
+</span><span>        PARAMETER["Latitude of natural origin",0,
+</span><span>            ANGLEUNIT["degree",0.0174532925199433],
+</span><span>            ID["EPSG",8801]],
+</span><span>        PARAMETER["Longitude of natural origin",0,
+</span><span>            ANGLEUNIT["degree",0.0174532925199433],
+</span><span>            ID["EPSG",8802]],
+</span><span>        PARAMETER["False easting",0,
+</span><span>            LENGTHUNIT["metre",1],
+</span><span>            ID["EPSG",8806]],
+</span><span>        PARAMETER["False northing",0,
+</span><span>            LENGTHUNIT["metre",1],
+</span><span>            ID["EPSG",8807]]],
+</span><span>    CS[Cartesian,2],
+</span><span>        AXIS["easting",east,
+</span><span>            ORDER[1],
+</span><span>            LENGTHUNIT["metre",1]],
+</span><span>        AXIS["northing",north,
+</span><span>            ORDER[2],
+</span><span>            LENGTHUNIT["metre",1]],
+</span><span>    ID["EPSG",3857]]
+</span><span>Data axis to CRS axis mapping: 1,2
+</span><span>Origin = (</span><span style=color:#bf616a>2886267.104982524644583,5550384.975221752189100</span><span>)
+</span><span style=color:#bf616a>Pixel</span><span> Size = (3.554565159517144,-3.554573706431164)
+</span><span style=color:#bf616a>Image</span><span> Structure Metadata:
+</span><span>  </span><span style=color:#bf616a>COMPRESSION</span><span>=</span><span style=color:#a3be8c>LZW
+</span><span>  </span><span style=color:#bf616a>INTERLEAVE</span><span>=</span><span style=color:#a3be8c>PIXEL
+</span><span>  </span><span style=color:#bf616a>LAYOUT</span><span>=</span><span style=color:#a3be8c>COG
+</span><span style=color:#bf616a>Corner</span><span> Coordinates:
+</span><span style=color:#bf616a>Upper</span><span> Left  ( 2886267.105, 5550384.975) ( 25d55'</span><span style=color:#a3be8c>40.00"E, 44d32</span><span>'46.88"</span><span style=color:#a3be8c>N)
+</span><span style=color:#a3be8c>Lower Left  ( 2886267.105, 5505423.172) ( 25d55'40.00</span><span>"E, 44d15'</span><span style=color:#a3be8c>28.05"N)
+</span><span style=color:#a3be8c>Upper Right ( 2944480.219, 5550384.975) ( 26d27</span><span>' 2.58"</span><span style=color:#a3be8c>E, 44d32'46.88</span><span>"N)
+</span><span style=color:#bf616a>Lower</span><span> Right ( 2944480.219, 5505423.172) ( </span><span style=color:#bf616a>26d27</span><span>'</span><span style=color:#a3be8c> 2.58"E, 44d15</span><span>'</span><span style=color:#bf616a>28.05</span><span>"</span><span style=color:#a3be8c>N)
+</span><span style=color:#a3be8c>Center      ( 2915373.662, 5527904.074) ( 26d11'21.29</span><span>"</span><span style=color:#bf616a>E,</span><span> 44d24'</span><span style=color:#a3be8c> 8.11"N)
+</span><span style=color:#a3be8c>Band 1 Block=512x512 Type=Byte, ColorInterp=Red
+</span><span style=color:#a3be8c>  Overviews: 8189x6325, 4095x3163, 2048x1582
+</span><span style=color:#a3be8c>Band 2 Block=512x512 Type=Byte, ColorInterp=Green
+</span><span style=color:#a3be8c>  Overviews: 8189x6325, 4095x3163, 2048x1582
+</span><span style=color:#a3be8c>Band 3 Block=512x512 Type=Byte, ColorInterp=Blue
+</span><span style=color:#a3be8c>  Overviews: 8189x6325, 4095x3163, 2048x1582
+</span></code></pre><p>If you're wondering, the <a href=https://gdal.org/tutorials/geotransforms_tut.html>"Geotransform"</a> is a set of parameters for an <a href=https://en.wikipedia.org/wiki/Affine_transformation>affine transformation</a>. It can describe a combination of translation (where the image is located), scaling (how large a pixel is), rotation (the orientation of the image) and shear, which I suspect nobody uses. These are sufficient for any "well-behaved" image like those you'll find on my blog, but that's not always the case.<p>We can load them both in QGIS, but something seems a little off. In the screenshot below, I reduced the transparency of <code>drumuri_Lzsn-data.tif</code>:<p><a href=/assets/lzsn-misalignment.webp target=_blank><img src=/assets/lzsn-misalignment-med.webp></a><p>That's pretty awful, and it seems that our approach was not quite right. In retrospect, this makes sense. The PDF had a correct georeference, but it doesn't necessarily transfer to the one we extracted, because we didn't take into account the position and scale of the image on the page.<h2 id=georeferencing-again>Georeferencing, again</h2><p>Fortunately, not all is lost, as this must be a problem a lot of QGIS users must running into. Digitizing a map doesn't seem like such a rare use case, and I knew that QGIS has a feature that helps with this. What we'd like to do is pick some points on our image, find their pair in the original one, and let QGIS figure it out. In GIS-speak, these are called GCPs, for Ground Control Points.<p>We can do this using the Georeferencer tool. If you're looking it up, a lot of documentation online is outdated, and it's now found Layer menu. The documentation makes this seem pretty complex, but it's not that bad.<p>Note: if you're following along, the file you load must not have a geotransform, otherwise QGIS will get <a href=https://github.com/qgis/QGIS/issues/51814>very confused</a>. So we have to undo the work from the previous section. The easiest way is probably to rebuild the file:<pre class=language-bash data-lang=bash style=color:#c0c5ce;background-color:#2b303b><code class=language-bash data-lang=bash><span style=color:#bf616a>$</span><span> gdal_translate</span><span style=color:#bf616a> -f</span><span> COG</span><span style=color:#bf616a> -co</span><span> NUM_THREADS=ALL_CPUS drumuri-Lzsn.jpg drumuri_Lzsn-data.tif
+</span></code></pre><p>I opened the tool, loaded the raster (<code>drumuri_Lzsn-data.tif</code>), then zoomed in a lot and clicked on a pixel that seemed easy to spot. A new window showed up asking for some coordinates, I clicked "From Map Canvas" and selected the corresponding pixel from the original (<code>drumuri_Lzsn-data.tif</code>):<p><a href=/assets/lzsn-georeferencer.webp target=_blank><img src=/assets/lzsn-georeferencer.webp></a><p>The points you click on don't get snapped to pixel centers, so I tried to be somewhat precise when clicking.<p>After hitting "OK", the GCP showed up at the bottom of the window.<p>You need at least two pairs of points, but I picked three because it was pretty fun. It's probably a good idea to choose points that are far apart from each other.<p>Then I went to "Transformation Settings", checked "Set target resolution", but left the horizontal and vertical values set to 0 (you get a weird error if you don't do this). Linear and Nearest Neighbor should be fine. Once you hit start, you should see a <code>drumuri_Lzsn-data_modified.tif</code> layer in QGIS.<p>Here I opened the layer settings and added <code>255</code> as an additional no data value in the Transparency tab, then added the OpenStreetMap XYZ tileset:<p><a href=/assets/lzsn-georeferenced.webp target=_blank><img src=/assets/lzsn-georeferenced-med.webp></a><p><a href=/assets/lzsn-georeferenced-detail.webp target=_blank><img src=/assets/lzsn-georeferenced-detail-med.webp></a><p>Unfortunately, I couldn't get a pixel-perfect match over the original, but it should be good enough for practical purposes.<h2 id=next-steps>Next steps</h2><p>Our result looks encouraging, but we still need to do something about the compression artefacts (remember, the image we extracted is a JPEG) and, ideally, fill in the building footprints. If you'd like to read more, stay tuned for the next part!</div></div>
