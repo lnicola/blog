@@ -9,7 +9,8 @@ minify_html = true
 # Whether to build a search index to be used later on by a JavaScript library
 build_search_index = false
 
-generate_feed = true
+generate_feeds = true
+feed_filenames = ["atom.xml"]
 
 theme = "hyde"
 
@@ -20,6 +21,7 @@ highlight_code = true
 author = "Laurențiu Nicola"
 hyde_links = [
     { url = "/", name = "Home" },
+    { url = "/content/talks/", name = "Talks" },
     { url = "/content/blogroll/", name = "Blogroll" },
     { url = "/content/acknowledgements/", name = "Acknowledgements" },
     { url = "https://www.buymeacoffee.com/lnicolaq", name = "Buy me a ☕" },
