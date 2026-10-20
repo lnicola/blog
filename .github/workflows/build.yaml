@@ -35,6 +35,16 @@ jobs:
           rm master.zip
           rm -r omniopencon2025-master
 
+      - name: Download Terminal GIS talk
+        run: |
+          set -e
+          mkdir -p public/content/talks/terminal-gis
+          curl -L https://github.com/lnicola/terminal-gis/archive/refs/heads/master.zip -o master.zip
+          unzip master.zip
+          mv terminal-gis-master/* public/content/talks/terminal-gis/
+          rm master.zip
+          rm -r terminal-gis-master
+
       - name: Publish
         uses: peaceiris/actions-gh-pages@v4
         with:
