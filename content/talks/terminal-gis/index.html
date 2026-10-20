@@ -1,0 +1,476 @@
+<!doctype html>
+<html lang="en">
+    <head>
+        <meta charset="utf-8" />
+        <meta
+            name="viewport"
+            content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no"
+        />
+
+        <title>Terminal GIS</title>
+
+        <link rel="stylesheet" href="dist/reset.css" />
+        <link rel="stylesheet" href="dist/reveal.css" />
+        <link rel="stylesheet" href="dist/theme/dracula.css" />
+
+        <link rel="stylesheet" href="plugin/highlight/monokai.css" />
+
+        <style>
+            .icon {
+                width: 1em;
+                height: 1em;
+                vertical-align: middle;
+                display: inline-block;
+                position: relative;
+                top: -0.125em;
+                padding: 0.125em;
+                color: var(--r-heading-color);
+            }
+
+            ul {
+                font-size: 0.8em;
+            }
+        </style>
+    </head>
+
+    <body>
+        <div class="reveal">
+            <div class="slides">
+                <section>
+                    <h3>Terminal GIS</h3>
+                    <p>Laurențiu Nicola</p>
+                </section>
+                <section>
+                    <h3>Motivation</h3>
+                    <ul>
+                        <li>
+                            Have a some workflows that take a lot of input data
+                            (~1 TB)
+                        </li>
+                        <li>Running on cloud VMs (that's where the input data is)</li>
+                        <li>Outputs are sometimes in the 100 GB range</li>
+                        <li>
+                            Downloading that amount of data <em>will</em> take a
+                            while
+                        </li>
+                        <li>
+                            I dislike waiting for
+                            <code>scp</code> at 8 MB/s
+                        </li>
+                        <li><code>sshfs</code> doesn't help</li>
+                    </ul>
+                </section>
+                <section>
+                    <h3>What to do?</h3>
+                    <ul>
+                        <li>
+                            I have a terminal and SSH session open anyway, can I
+                            do anything with it?
+                        </li>
+                        <li>Maybe even&hellip; view my data?</li>
+                    </ul>
+                </section>
+                <section>
+                    <h3>Terminals?</h3>
+                    <img src="images/mc.png" />
+                </section>
+                <section>
+                    <h3>Images!</h3>
+                    <img src="images/ansi.png" style="width: 40%" />
+                </section>
+                <section>
+                    <h3>Terminals, how do they work?</h3>
+                    <img src="images/vt100.png" style="width: 40%" />
+                    <figcaption style="font-size: 0.3em; color: #aaa">
+                        Source:
+                        <a
+                            href="https://en.wikipedia.org/wiki/File:DEC_VT100_terminal.jpg"
+                            >DEC VT100 on Wikipedia</a
+                        >
+                    </figcaption>
+                </section>
+                <section>
+                    <h3>ANSI escape sequences</h3>
+                    <ul>
+                        <li>Made popular by the DEC VT100 terminal (1978)</li>
+                        <li>
+                            <code>C0</code> control codes: <code>\n</code>,
+                            <code>\r</code>, <code>\x1b (ESC)</code>
+                        </li>
+                        <li><code>ESC [ (CSI)</code></li>
+                        <li>
+                            <code>CSI <em>n</em> m (SGR)</code>
+                        </li>
+                        <div class="fragment">
+                            <li>
+                                <code>CSI 1 m</code> (bold / high intensity),
+                                <code>CSI 31 m</code> (red foreground),
+                                <code>CSI 34 m</code> (blue foreground)
+                            </li>
+                            <li>
+                                Can combine multiple SGR codes using
+                                <code>;</code>
+                            </li>
+                        </div>
+                        <li class="fragment">
+                            <code>\x1b[31mHello, \x1b[1;34mworld</code>
+                        </li>
+                    </ul>
+                    <img class="fragment" src="images/sgr.png" />
+                </section>
+                <section>
+                    <h3>ANSI escape sequences</h3>
+                    <ul>
+                        <li>
+                            Dozens of them,
+                            <a
+                                href="https://en.wikipedia.org/wiki/ANSI_escape_code"
+                                >Wikipedia</a
+                            >
+                            has a nice list
+                        </li>
+                        <li>
+                            Blink, cursor movement, strikethrough, subscript
+                        </li>
+                        <li>4-, 8-, later 24-bit colors</li>
+                        <li>More or less compatible with modern terminals</li>
+                        <li>
+                            If you're running <code>tmux</code> under
+                            <code>screen</code>, good luck
+                        </li>
+                        <li>
+                            Good luck anyway, because color themes are awful these days
+                        </li>
+                    </ul>
+                </section>
+                <section>
+                    <h3>True color and other tricks</h3>
+                    <img src="images/tct.png" style="width: 40%" />
+                </section>
+                <section>
+                    <h3>Modern image protocols</h3>
+                    <ul>
+                        <li>
+                            Some terminals support real images: iTerm2,
+                            <strong>Kitty</strong> protocols
+                        </li>
+                        <li>3 KB chunks encoded as base64</li>
+                    </ul>
+                    <div class="fragment">
+                        <pre>
+                            <code>&lt;ESC&gt;_Ga=T,s=100,v=30,m=1;&lt;first chunk&gt;&lt;ESC&gt;\
+&lt;ESC&gt;_Gm=1;&lt;second chunk&gt;&lt;ESC&gt;\
+&lt;ESC&gt;_Gm=0;&lt;last chunk&gt;&lt;ESC&gt;\</code>
+                        </pre>
+                    </div>
+                </section>
+                <section>
+                    <h3>A gentle introduction to Rust</h3>
+                    <pre style="font-size: 8pt">
+<code>#[derive(Copy)]
+struct TermSize {
+    rows: u16,
+    width_px: u16,
+    height_px: u16,
+}
+
+fn terminal_size() -> Result&lt;TermSize, Error&gt; {
+    let mut ws = winsize {
+        ws_row: 0,
+        ws_col: 0,
+        ws_xpixel: 0,
+        ws_ypixel: 0,
+    };
+    if unsafe { ioctl(STDOUT_FILENO, TIOCGWINSZ, &mut ws) } != 0 {
+        return Err(Error::last_os_error());
+    }
+    if ws.ws_xpixel == 0 || ws.ws_ypixel == 0 {
+        return Err(Error::new(
+            ErrorKind::Unsupported,
+            "terminal does not support TIOCGWINSZ",
+        ));
+    }
+    Ok(TermSize {
+        rows: ws.ws_row,
+        width_px: ws.ws_xpixel,
+        height_px: ws.ws_ypixel,
+    })
+}</code>
+                    </pre>
+                </section>
+                <section>
+                    <h3>Displaying an image</h3>
+                    <pre style="font-size: 8pt">
+<code>let dataset = Dataset::open(image_path)?;
+let src_size = dataset.raster_size();
+
+let term = terminal_size()?;
+let dst_size = compute_size(term, src_size);
+let data = dataset.read_raster_interleaved((0, 0), src_size, dst_size, &[1, 2, 3])?;
+
+let chunks = data.chunks(3072);
+let total_chunks = chunks.len();
+
+let mut stdout = io::stdout().lock();
+for (i, chunk) in chunks.enumerate() {
+    let m = if i == total_chunks - 1 { 0 } else { 1 };
+    if i == 0 {
+        write!(
+            stdout,
+            "\x1b_Ga=T,f=24,s={},v={},m={};",
+            dst_size.0, dst_size.1, m
+        )?;
+    } else {
+        write!(stdout, "\x1b_Gm={};", m)?;
+    }
+    {
+        let mut encoder = EncoderWriter::new(&mut stdout, &STANDARD);
+        encoder.write_all(chunk)?;
+        encoder.finish()?;
+    }
+    write!(stdout, "\x1b\\")?;
+}
+writeln!(stdout)?;</code>
+                    </pre>
+                </section>
+                <section>
+                    <img src="images/ghostty.png" />
+                </section>
+                <section>
+                    <h3><code>ratatui</code></h3>
+                    <pre style="font-size: 8pt">
+<code>enable_raw_mode()?;
+let mut stdout = io::stdout();
+execute!(
+    stdout,
+    EnterAlternateScreen,
+    EnableMouseCapture,
+    EnableSgrPixelMouse
+)?;
+
+let backend = CrosstermBackend::new(stdout);
+let mut terminal = Terminal::new(backend)?;
+terminal.hide_cursor()?;
+
+let picker = Picker::from_query_stdio()?;
+let mut app = App::new(picker);
+
+let res = run_app(&mut terminal, &mut app);
+
+// undo everything at the end&hellip;</code>
+                    </pre>
+                </section>
+                <section>
+                    <h3><code>ratatui</code></h3>
+                    <pre style="font-size: 8pt">
+<code class="language-rust">loop {
+    terminal.draw(|f| {
+        let area = f.area();
+        self.resize_canvas(area);
+        f.render_stateful_widget(StatefulImage::new(), area, &mut self.protocol);
+    })?;
+
+    match event::read()? {
+        Event::Key(key) if key.kind == KeyEventKind::Press && key.code == KeyCode::Esc => break,
+        Event::Mouse(mouse) => {
+            let (mx, my) = (mouse.column, mouse.row);
+
+            match mouse.kind {
+                MouseEventKind::Down(MouseButton::Left) | MouseEventKind::Drag(MouseButton::Left) => {
+                    if let Some((lx, ly)) = self.last_mouse_pos {
+                        self.draw_line(lx, ly, mx, my);
+                    } else {
+                        self.draw_point(mx, my);
+                    }
+                    self.last_mouse_pos = Some((mx, my));
+
+                    self.update_protocol();
+                }
+                MouseEventKind::Up(MouseButton::Left) => self.last_mouse_pos = None,
+                _ => {}
+            }
+        }
+        _ => {}
+    }
+}</code>
+                    </pre>
+                </section>
+                <section>
+                    <video
+                        autoplay
+                        controls
+                        loop
+                        src="images/paint.mp4"
+                    ></video>
+                </section>
+                <section>
+                    <h3>GIS where?</h3>
+                    <ul>
+                        <li>Reading datasets</li>
+                        <li>Image display</li>
+                        <li>Mouse handling</li>
+                    </ul>
+                </section>
+                <section>
+                    <video
+                        autoplay
+                        controls
+                        loop
+                        src="images/t-gis.mp4"
+                    ></video>
+                </section>
+                <section>
+                    <img src="images/text-image.png" />
+                </section>
+                <section>
+                    <img src="images/gis-pigeon.png" />
+                </section>
+                <section>
+                    <h3>Missing features (for me)</h3>
+                    <ul>
+                        <li>Pixel / feature picking</li>
+                        <li>Tabs (change detection)</li>
+                        <li>High bit depth</li>
+                        <li>NoData handling</li>
+                        <li>Alpha blending</li>
+                    </ul>
+                </section>
+                <section>
+                    <h3>Why Rust?</h3>
+                    <ul>
+                        <li>
+                            High-level, you can use it like Python, nobody will
+                            complain
+                        </li>
+                        <li>
+                            <em>Easy</em> to use, cf.
+                            <code>NameError</code> after running for half a day
+                        </li>
+                        <li>
+                            Fast, on-par with C, even naïve code might be fast
+                            enough
+                        </li>
+                        <li>
+                            Rust means never<sup>*</sup> getting a
+                            <code>SIGSEGV</code> (or data race) again
+                        </li>
+                        <li>Good libraries, and can call into any C library</li>
+                        <li>Good tooling and documentation</li>
+                        <li>These days: memory (<em>thanks, OpenAI!</em>)</li>
+                    </ul>
+                </section>
+                <section>
+                    <h3>On AI and security</h3>
+                    <p>😶‍🌫️</p>
+                    <ul class="fragment">
+                        <li>The free lunch is over</li>
+                        <li>Morris worm (1988)</li>
+                        <li>
+                            Ritchie <em>fat pointers</em> proposal for C (1990)
+                        </li>
+                        <li>
+                            Buffer overflows and shell injection bugs (2026)
+                        </li>
+                        <li>
+                            Memory without thread safety only gets you so far
+                        </li>
+                    </ul>
+                </section>
+                <section>
+                    <h3>Was it worth it?</h3>
+                    <ul>
+                        <li>It works, if you don't need too many features</li>
+                        <li>It's fast, if your window is small</lib>
+                        <li class="fragment">Alternatives? (GUI + headless server component)</li>
+                    </ul>
+                </section>
+                <section>
+                    <h3>Resources</h3>
+                    <ul>
+                        <li><a href="https://gdal.org/">GDAL</a></li>
+                        <li><a href="https://georust.org/">GeoRust</a></li>
+                        <li><a href="https://rust-lang.org/">Rust</a></li>
+                        <li>
+                            <a href="https://doc.rust-lang.org/rust-by-example/"
+                                >Rust by Example</a
+                            >
+                        </li>
+                    </ul>
+                    <div>
+                        <img
+                            src="images/GDALLogoColor.svg"
+                            style="width: 128px; height: 128px"
+                        />
+                        <img
+                            src="images/rust.svg"
+                            style="
+                                width: 128px;
+                                height: 128px;
+                                filter: invert(1);
+                            "
+                        />
+                        <img
+                            src="images/georust-logo.svg"
+                            style="
+                                width: 128px;
+                                height: 128px;
+                                filter: invert(1);
+                            "
+                        />
+                    </div>
+                </section>
+                <section>
+                    <h3>Thank you!</h3>
+                    <div style="text-align: left; font-size: 0.7em">
+                        <p>
+                            <svg
+                                xmlns="http://www.w3.org/2000/svg"
+                                viewBox="0 0 448 512"
+                                class="icon"
+                            >
+                                <!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc. -->
+                                <path
+                                    fill="currentColor"
+                                    d="M433 179.1c0-97.2-63.7-125.7-63.7-125.7-62.5-28.7-228.6-28.4-290.5 0 0 0-63.7 28.5-63.7 125.7 0 115.7-6.6 259.4 105.6 289.1 40.5 10.7 75.3 13 103.3 11.4 50.8-2.8 79.3-18.1 79.3-18.1l-1.7-36.9s-36.3 11.4-77.1 10.1c-40.4-1.4-83-4.4-89.6-54-.6-4.6-.9-9.3-.9-13.9 85.6 20.9 158.7 9.1 178.7 6.7 56.1-6.7 105-41.3 111.2-72.9 9.8-49.8 9-121.5 9-121.5zM357.9 304.3l-46.6 0 0-114.2c0-49.7-64-51.6-64 6.9l0 62.5-46.3 0 0-62.5c0-58.5-64-56.6-64-6.9l0 114.2-46.7 0c0-122.1-5.2-147.9 18.4-175 25.9-28.9 79.8-30.8 103.8 6.1l11.6 19.5 11.6-19.5c24.1-37.1 78.1-34.8 103.8-6.1 23.7 27.3 18.4 53 18.4 175l0 0z"
+                                />
+                            </svg>
+                            <a
+                                href="https://mapstodon.space/@lnicola"
+                                target="_blank"
+                                >@lnicola@mapstodon.space</a
+                            >
+                        </p>
+                        <p>
+                            <svg
+                                xmlns="http://www.w3.org/2000/svg"
+                                viewBox="0 0 512 512"
+                                class="icon"
+                            >
+                                <!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc. -->
+                                <path
+                                    fill="currentColor"
+                                    d="M61.4 64C27.5 64 0 91.5 0 125.4 0 126.3 0 127.1 .1 128L0 128 0 384c0 35.3 28.7 64 64 64l384 0c35.3 0 64-28.7 64-64l0-256-.1 0c0-.9 .1-1.7 .1-2.6 0-33.9-27.5-61.4-61.4-61.4L61.4 64zM464 192.3L464 384c0 8.8-7.2 16-16 16L64 400c-8.8 0-16-7.2-16-16l0-191.7 154.8 117.4c31.4 23.9 74.9 23.9 106.4 0L464 192.3zM48 125.4C48 118 54 112 61.4 112l389.2 0c7.4 0 13.4 6 13.4 13.4 0 4.2-2 8.2-5.3 10.7L280.2 271.5c-14.3 10.8-34.1 10.8-48.4 0L53.3 136.1c-3.3-2.5-5.3-6.5-5.3-10.7z"
+                                />
+                            </svg>
+                            <a href="mailto:lnicola@dend.ro" target="_blank"
+                                >lnicola@dend.ro</a
+                            >
+                        </p>
+                    </div>
+                </section>
+            </div>
+        </div>
+
+        <script src="dist/reveal.js"></script>
+        <script src="plugin/highlight/highlight.js"></script>
+        <script src="plugin/zoom/zoom.js"></script>
+        <script>
+            Reveal.initialize({
+                hash: true,
+                transition: "none",
+                // Learn about plugins: https://revealjs.com/plugins/
+                plugins: [RevealHighlight, RevealZoom],
+            });
+        </script>
+    </body>
+</html>

@@ -1,0 +1,153 @@
+<!doctype html><html lang=en><head><meta charset=utf-8><meta content="width=device-width,initial-scale=1.0,maximum-scale=1,viewport-fit=cover" name=viewport><title>Decoding Firefox session store data</title><link href=/print.css media=print rel=stylesheet><link href=/poole.css rel=stylesheet><link href=/hyde.css rel=stylesheet><link href=https://blog.dend.ro/atom.xml rel=alternate title=RSS type=application/atom+xml><link href=https://mapstodon.space/@lnicola rel=me><body><div class=sidebar><div class="container sidebar-sticky"><div class=sidebar-about><a href=https://blog.dend.ro/><h1></h1></a></div><ul class=sidebar-nav><li class=sidebar-nav-item><a href=/>Home</a><li class=sidebar-nav-item><a href=/content/talks/>Talks</a><li class=sidebar-nav-item><a href=/content/blogroll/>Blogroll</a><li class=sidebar-nav-item><a href=/content/acknowledgements/>Acknowledgements</a><li class=sidebar-nav-item><a href=https://www.buymeacoffee.com/lnicolaq>Buy me a ☕</a></ul></div></div><div class="content container"><div class=post><h1 class=post-title>Decoding Firefox session store data</h1><span class=post-date>2022-06-12</span><p>If you're using Firefox (and you should), you might have wanted to read its session restore files, perhaps to recover some lost tabs, re-import an old session after a refresh, or even track your tab hoarding habit.<p>Unfortunately, last time I checked, there wasn't much information available about the session restore format. I've previously used <a href=https://github.com/andikleen/lz4json><code>lz4json</code></a> to decode them, but it's a good prompt for a post, and I'd rather not keep an extra AUR package anyway.<h2 id=finding-the-files>Finding the files</h2><p>Under <code>~/.mozilla/firefox</code> on Linux, or <code>%APPDATA%\Mozilla\Firefox</code> on Windows, you should have a <code>profiles.ini</code>, an <code>installs.ini</code> and one or more randomly-named subdirectories. The default profile is marked as such in the two INI files. Of course, the better way is to open <code>about:support</code> and copy the path from there.<p>In there, there should be a directory called <code>sessionstore-backups</code>, with a couple of files:<pre class=language-bash data-lang=bash style=color:#c0c5ce;background-color:#2b303b><code class=language-bash data-lang=bash><span style=color:#bf616a>$</span><span> ls sessionstore-backups
+</span><span style=color:#bf616a>previous.jsonlz4
+</span><span style=color:#bf616a>recovery.baklz4
+</span><span style=color:#bf616a>recovery.jsonlz4
+</span><span style=color:#bf616a>upgrade.jsonlz4-20220518214245
+</span><span style=color:#bf616a>upgrade.jsonlz4-20220530093943
+</span><span style=color:#bf616a>upgrade.jsonlz4-20220606212503
+</span></code></pre><p>I don't know the specifics, but these are backup versions, more or less recent, some of them saved during browser upgrades. Looking at the last modified dates, it appears that the most recent one is called <code>recovery.jsonlz4</code>.<h2 id=the-lz4json-format>The <code>lz4json</code> format</h2><p>The <code>jsonlz4</code> extension is a good hint, but a good first step is to run the <code>file</code> utility, which tries to guess the type of a file:<pre class=language-bash data-lang=bash style=color:#c0c5ce;background-color:#2b303b><code class=language-bash data-lang=bash><span style=color:#bf616a>$</span><span> file recovery.jsonlz4
+</span><span style=color:#bf616a>recovery.jsonlz4:</span><span> Mozilla lz4 compressed data, originally 145030214 bytes
+</span></code></pre><p><code>file</code> recognizes thousands of file formats, but it's relatively shallow. This means that the uncompressed length is likely to be easily accessible. Let's look at the file contents:<pre style=color:#c0c5ce;background-color:#2b303b><code><span>$ hexyl recovery.jsonlz4 | head -n7
+</span><span>┌────────┬─────────────────────────┬─────────────────────────┬────────┬────────┐
+</span><span>│00000000│ 6d 6f 7a 4c 7a 34 30 00 ┊ 46 fc a4 08 f2 21 7b 22 │mozLz400┊F××•×!{"│
+</span><span>│00000010│ 76 65 72 73 69 6f 6e 22 ┊ 3a 5b 22 73 65 73 73 69 │version"┊:["sessi│
+</span><span>│00000020│ 6f 6e 72 65 73 74 6f 72 ┊ 65 22 2c 31 5d 2c 22 77 │onrestor┊e",1],"w│
+</span><span>│00000030│ 69 6e 64 6f 77 73 22 3a ┊ 5b 7b 22 74 61 62 09 00 │indows":┊[{"tab_0│
+</span><span>│00000040│ 62 65 6e 74 72 69 65 0c ┊ 00 f3 29 75 72 6c 22 3a │bentrie_┊0×)url":│
+</span><span>│00000050│ 22 68 74 74 70 73 3a 2f ┊ 2f 6d 61 74 72 69 78 2e │"https:/┊/matrix.│
+</span></code></pre><p>We can actually see some <a href=https://blog.dend.ro/decoding-firefox-session-store-data/en.wikipedia.org/wiki/JSON>JSON</a> in there. <a href=https://en.wikipedia.org/wiki/LZ4_(compression_algorithm)>LZ4</a> is designed to be as fast as possible, so it doesn't do anything fancy like <a href=https://en.wikipedia.org/wiki/Huffman_coding>Huffman coding</a>, yielding partially-readable text as output.<p>Before the JSON, though, there is a line that looks a bit strange. The file starts with the <code>"mozLz40\0"</code> <a href=https://en.wikipedia.org/wiki/File_format#Magic_number>magic number</a>, followed by what appear to be six non-ASCII bytes, then the start of the JSON. We can expect the six bytes to contain the file length, or maybe a checksum. These are usually found either at the beginning or at the end of a file.<p>Luckily, <code>file</code> was nice to tell us the uncompressed data size. <code>145030214</code>, converted to <a href=https://en.wikipedia.org/wiki/Hexadecimal>hex</a> is <code>0x08A4FC46</code>, which is actually visible as <code>46 fc a4 08</code> in the <a href=https://github.com/sharkdp/hexyl><code>hexyl</code></a> output above.<p>We can also <a href=https://github.com/file/file/blob/46976e05f97e4b2bc77476a16f7107ff0be12df1/magic/Magdir/mozilla#L22-L25>peek</a> at the implementation of <code>file</code>. It appears to confirm that the uncompressed size is a <a href=https://en.wikipedia.org/wiki/Endianness>little-endian</a> 32-bit number, followed directly by the compressed data. I assume that the <code>>8</code> annotation means "starting from offset 8" or something similar to that.<h2 id=writing-some-code>Writing some code</h2><p>This is a <a href=https://www.rust-lang.org/>Rust</a>-related blog, so of course I'll be using that. Fortunately, we already have libraries for everything we're going to need, so it's going to be easy. We can use <a href=https://crates.io/crates/lz4_flex><code>lz4_flex</code></a> for LZ4 decoding, <a href=https://crates.io/crates/serde><code>serde</code></a> and <a href=https://crates.io/crates/serde_json><code>serde_json</code></a> for JSON decoding, and <a href=https://crates.io/crates/anyhow><code>anyhow</code></a> to handle errors in a nicer way. We'll also pull in <a href=https://crates.io/crates/memmap2><code>memmap2</code></a> to map the file in memory (which is optional, but saves a bit of RAM) and <a href=https://crates.io/crates/serde_json><code>url</code></a> for URL parsing.<pre class=language-toml data-lang=toml style=color:#c0c5ce;background-color:#2b303b><code class=language-toml data-lang=toml><span style=color:#65737e># Cargo.toml
+</span><span>[package]
+</span><span style=color:#bf616a>name </span><span>= "</span><span style=color:#a3be8c>tabs</span><span>"
+</span><span style=color:#bf616a>version </span><span>= "</span><span style=color:#a3be8c>0.1.0</span><span>"
+</span><span style=color:#bf616a>edition </span><span>= "</span><span style=color:#a3be8c>2021</span><span>"
+</span><span>
+</span><span>[dependencies]
+</span><span style=color:#bf616a>anyhow </span><span>= "</span><span style=color:#a3be8c>1.0</span><span>"
+</span><span style=color:#bf616a>lz4_flex </span><span>= "</span><span style=color:#a3be8c>0.9</span><span>"
+</span><span style=color:#bf616a>memmap2 </span><span>= "</span><span style=color:#a3be8c>0.5</span><span>"
+</span><span style=color:#bf616a>serde </span><span>= { </span><span style=color:#bf616a>version </span><span>= "</span><span style=color:#a3be8c>1.0</span><span>", </span><span style=color:#bf616a>features </span><span>= ["</span><span style=color:#a3be8c>derive</span><span>"] }
+</span><span style=color:#bf616a>serde_json </span><span>= "</span><span style=color:#a3be8c>1.0</span><span>"
+</span><span style=color:#bf616a>url </span><span>= "</span><span style=color:#a3be8c>2.2</span><span>"
+</span></code></pre><p><code>lz4_flex</code> has a nifty <a href=https://docs.rs/lz4_flex/0.9.3/lz4_flex/fn.decompress_size_prepended.html>helper function</a> to decode a size-prepended block, exactly what our file uses. So if we're lucky, it should be enough to open the file, read it, then call the decompression function. With some imports and command line handling omitted, it simply comes to:<pre class=language-rust data-lang=rust style=color:#c0c5ce;background-color:#2b303b><code class=language-rust data-lang=rust><span style=color:#b48ead>let</span><span> file = File::open(&path)?;
+</span><span style=color:#b48ead>let</span><span> mmap = </span><span style=color:#b48ead>unsafe </span><span>{ MmapOptions::new().</span><span style=color:#96b5b4>map</span><span>(&file)? };
+</span><span style=color:#b48ead>let</span><span> buf = lz4_flex::decompress_size_prepended(&mmap[</span><span style=color:#d08770>8</span><span>..])?;
+</span><span style=color:#b48ead>let</span><span> buf = String::from_utf8(buf)?;
+</span><span>
+</span><span style=color:#65737e>// check if it worked
+</span><span>println!("</span><span style=color:#d08770>{}</span><span>", &buf[..</span><span style=color:#d08770>64</span><span>]);
+</span></code></pre><pre class=language-bash data-lang=bash style=color:#c0c5ce;background-color:#2b303b><code class=language-bash data-lang=bash><span style=color:#bf616a>$</span><span> cargo run</span><span style=color:#bf616a> --release</span><span> -- </span><span style=color:#bf616a>~</span><span>/.mozilla/firefox/ou63gnwj.default
+</span><span style=color:#65737e># snip
+</span><span style=color:#bf616a>{</span><span>"</span><span style=color:#a3be8c>version</span><span>"</span><span style=color:#bf616a>:[</span><span>"</span><span style=color:#a3be8c>sessionrestore</span><span>"</span><span style=color:#bf616a>,1],</span><span>"</span><span style=color:#a3be8c>windows</span><span>"</span><span style=color:#bf616a>:[{</span><span>"</span><span style=color:#a3be8c>tabs</span><span>"</span><span style=color:#bf616a>:[{</span><span>"</span><span style=color:#a3be8c>entries</span><span>"</span><span style=color:#bf616a>:[
+</span></code></pre><p>I won't show it here, but the way the JSON is structured, the session has a list of windows, each window has a list of tabs, and each tab has a list of history entries. We only care for the last entry, which is the one currently displayed.<p>This is pretty easy to parse with <code>serde</code>.<pre class=language-rust data-lang=rust style=color:#c0c5ce;background-color:#2b303b><code class=language-rust data-lang=rust><span>#[</span><span style=color:#bf616a>derive</span><span>(Deserialize)]
+</span><span style=color:#b48ead>struct </span><span>Entry {
+</span><span>    </span><span style=color:#bf616a>url</span><span>: String,
+</span><span>}
+</span><span>
+</span><span>#[</span><span style=color:#bf616a>derive</span><span>(Deserialize)]
+</span><span style=color:#b48ead>struct </span><span>Tab {
+</span><span>    </span><span style=color:#bf616a>entries</span><span>: Vec&lt;Entry>,
+</span><span>}
+</span><span>
+</span><span>#[</span><span style=color:#bf616a>derive</span><span>(Deserialize)]
+</span><span style=color:#b48ead>struct </span><span>Window {
+</span><span>    </span><span style=color:#bf616a>tabs</span><span>: Vec&lt;Tab>,
+</span><span>}
+</span><span>
+</span><span>#[</span><span style=color:#bf616a>derive</span><span>(Deserialize)]
+</span><span style=color:#b48ead>struct </span><span>SessionStore {
+</span><span>    </span><span style=color:#bf616a>windows</span><span>: Vec&lt;Window>,
+</span><span>}
+</span><span>
+</span><span style=color:#65737e>// ...
+</span><span>
+</span><span style=color:#b48ead>let</span><span> session = serde_json::from_slice::&lt;SessionStore>(&buf)?;
+</span><span style=color:#b48ead>let mut</span><span> domains = HashMap::&lt;_, </span><span style=color:#b48ead>u32</span><span>>::new();
+</span><span style=color:#b48ead>for</span><span> window in session.windows {
+</span><span>    </span><span style=color:#b48ead>for</span><span> tab in window.tabs {
+</span><span>        </span><span style=color:#b48ead>if let </span><span>Some(entry) = tab.entries.</span><span style=color:#96b5b4>last</span><span>() {
+</span><span>            </span><span style=color:#b48ead>let</span><span> url = Url::parse(&entry.url)?;
+</span><span>            </span><span style=color:#65737e>// skip about:blank, about:reader etc.
+</span><span>            </span><span style=color:#b48ead>if let </span><span>Some(host) = url.</span><span style=color:#96b5b4>host_str</span><span>() {
+</span><span>                *domains.</span><span style=color:#96b5b4>entry</span><span>(host.</span><span style=color:#96b5b4>to_string</span><span>()).</span><span style=color:#96b5b4>or_default</span><span>() += </span><span style=color:#d08770>1</span><span>;
+</span><span>            }
+</span><span>        }
+</span><span>    }
+</span><span>}
+</span></code></pre><p>For this example, I'm grabbing every tab in every window, making sure it's not empty, taking the last entry, then sticking the domain of each URL in a <code>HashMap</code>, in order to count them.<p><em>Note: If you know Rust, that snippet looks a bit nicer written in a functional/iterator-based style.</em><p>Finally, we <a href=https://doc.rust-lang.org/std/iter/trait.Iterator.html#method.collect><code>collect</code></a> the entries into a <code>Vec</code>, sort them, and display the most common domains:<pre class=language-rust data-lang=rust style=color:#c0c5ce;background-color:#2b303b><code class=language-rust data-lang=rust><span style=color:#b48ead>let mut</span><span> domains = domains.</span><span style=color:#96b5b4>into_iter</span><span>().collect::&lt;Vec&lt;_>>();
+</span><span>domains.</span><span style=color:#96b5b4>sort_unstable_by_key</span><span>(|</span><span style=color:#bf616a>p</span><span>| Reverse(p.</span><span style=color:#d08770>1</span><span>));
+</span><span style=color:#b48ead>for </span><span>(domain, count) in domains.</span><span style=color:#96b5b4>into_iter</span><span>().</span><span style=color:#96b5b4>take</span><span>(</span><span style=color:#d08770>10</span><span>) {
+</span><span>    println!("</span><span style=color:#d08770>{} {}</span><span>", domain, count);
+</span><span>}
+</span></code></pre><pre class=language-bash data-lang=bash style=color:#c0c5ce;background-color:#2b303b><code class=language-bash data-lang=bash><span style=color:#65737e># sample output, truncated
+</span><span style=color:#bf616a>$</span><span> cargo run</span><span style=color:#bf616a> --release</span><span> -- </span><span style=color:#bf616a>~</span><span>/.mozilla/firefox/ou63gnwj.default
+</span><span style=color:#bf616a>github.com</span><span> 1150
+</span><span style=color:#bf616a>www.youtube.com</span><span> 213
+</span><span style=color:#bf616a>twitter.com</span><span> 206
+</span><span style=color:#bf616a>news.ycombinator.com</span><span> 109
+</span></code></pre><p><em>I may or may not have a tab hoarding problem.</em><p>Full code:<pre class=language-rust data-lang=rust style=color:#c0c5ce;background-color:#2b303b><code class=language-rust data-lang=rust><span style=color:#b48ead>use </span><span>std::cmp::Reverse;
+</span><span style=color:#b48ead>use </span><span>std::collections::HashMap;
+</span><span style=color:#b48ead>use </span><span>std::fs::File;
+</span><span style=color:#b48ead>use </span><span>std::path::PathBuf;
+</span><span style=color:#b48ead>use </span><span>std::{env, process};
+</span><span>
+</span><span style=color:#b48ead>use </span><span>memmap2::MmapOptions;
+</span><span style=color:#b48ead>use </span><span>serde::Deserialize;
+</span><span style=color:#b48ead>use </span><span>url::Url;
+</span><span>
+</span><span>#[</span><span style=color:#bf616a>derive</span><span>(Deserialize)]
+</span><span style=color:#b48ead>struct </span><span>Entry {
+</span><span>    </span><span style=color:#bf616a>url</span><span>: String,
+</span><span>}
+</span><span>
+</span><span>#[</span><span style=color:#bf616a>derive</span><span>(Deserialize)]
+</span><span style=color:#b48ead>struct </span><span>Tab {
+</span><span>    </span><span style=color:#bf616a>entries</span><span>: Vec&lt;Entry>,
+</span><span>}
+</span><span>
+</span><span>#[</span><span style=color:#bf616a>derive</span><span>(Deserialize)]
+</span><span style=color:#b48ead>struct </span><span>Window {
+</span><span>    </span><span style=color:#bf616a>tabs</span><span>: Vec&lt;Tab>,
+</span><span>}
+</span><span>
+</span><span>#[</span><span style=color:#bf616a>derive</span><span>(Deserialize)]
+</span><span style=color:#b48ead>struct </span><span>SessionStore {
+</span><span>    </span><span style=color:#bf616a>windows</span><span>: Vec&lt;Window>,
+</span><span>}
+</span><span>
+</span><span style=color:#b48ead>fn </span><span style=color:#8fa1b3>main</span><span>() -> anyhow::Result&lt;()> {
+</span><span>    </span><span style=color:#b48ead>let mut</span><span> args = env::args_os().collect::&lt;Vec&lt;_>>();
+</span><span>    </span><span style=color:#b48ead>if</span><span> args.</span><span style=color:#96b5b4>len</span><span>() != </span><span style=color:#d08770>2 </span><span>{
+</span><span>        eprintln!("</span><span style=color:#a3be8c>Usage: </span><span style=color:#d08770>{}</span><span style=color:#a3be8c> &lt;profile></span><span>", args[</span><span style=color:#d08770>0</span><span>].</span><span style=color:#96b5b4>to_string_lossy</span><span>());
+</span><span>        process::exit(</span><span style=color:#d08770>1</span><span>);
+</span><span>    }
+</span><span>
+</span><span>    </span><span style=color:#b48ead>let mut</span><span> path = PathBuf::from(args.</span><span style=color:#96b5b4>remove</span><span>(</span><span style=color:#d08770>1</span><span>));
+</span><span>    path.</span><span style=color:#96b5b4>push</span><span>("</span><span style=color:#a3be8c>sessionstore-backups/recovery.jsonlz4</span><span>");
+</span><span>
+</span><span>    </span><span style=color:#b48ead>let</span><span> file = File::open(&path)?;
+</span><span>    </span><span style=color:#b48ead>let</span><span> mmap = </span><span style=color:#b48ead>unsafe </span><span>{ MmapOptions::new().</span><span style=color:#96b5b4>map</span><span>(&file)? };
+</span><span>    </span><span style=color:#b48ead>let</span><span> buf = lz4_flex::decompress_size_prepended(&mmap[</span><span style=color:#d08770>8</span><span>..])?;
+</span><span>
+</span><span>    </span><span style=color:#b48ead>let</span><span> session = serde_json::from_slice::&lt;SessionStore>(&buf)?;
+</span><span>    </span><span style=color:#b48ead>let mut</span><span> domains = HashMap::&lt;_, </span><span style=color:#b48ead>u32</span><span>>::new();
+</span><span>    </span><span style=color:#b48ead>for</span><span> window in session.windows {
+</span><span>        </span><span style=color:#b48ead>for</span><span> tab in window.tabs {
+</span><span>            </span><span style=color:#b48ead>if let </span><span>Some(entry) = tab.entries.</span><span style=color:#96b5b4>last</span><span>() {
+</span><span>                </span><span style=color:#b48ead>let</span><span> url = Url::parse(&entry.url)?;
+</span><span>                </span><span style=color:#65737e>// println!("{url}"); // uncomment this to show all URLs
+</span><span>                </span><span style=color:#b48ead>if let </span><span>Some(host) = url.</span><span style=color:#96b5b4>host_str</span><span>() {
+</span><span>                    *domains.</span><span style=color:#96b5b4>entry</span><span>(host.</span><span style=color:#96b5b4>to_string</span><span>()).</span><span style=color:#96b5b4>or_default</span><span>() += </span><span style=color:#d08770>1</span><span>;
+</span><span>                }
+</span><span>            }
+</span><span>        }
+</span><span>    }
+</span><span>
+</span><span>    </span><span style=color:#b48ead>let mut</span><span> domains = domains.</span><span style=color:#96b5b4>into_iter</span><span>().collect::&lt;Vec&lt;_>>();
+</span><span>    domains.</span><span style=color:#96b5b4>sort_unstable_by_key</span><span>(|</span><span style=color:#bf616a>p</span><span>| Reverse(p.</span><span style=color:#d08770>1</span><span>));
+</span><span>    </span><span style=color:#b48ead>for </span><span>(domain, count) in domains.</span><span style=color:#96b5b4>into_iter</span><span>().</span><span style=color:#96b5b4>take</span><span>(</span><span style=color:#d08770>10</span><span>) {
+</span><span>        println!("</span><span style=color:#d08770>{} {}</span><span>", domain, count);
+</span><span>    }
+</span><span>
+</span><span>    Ok(())
+</span><span>}
+</span></code></pre><h2 id=conclusion>Conclusion</h2><p>We've uncompressed a Firefox session backup and printed the most common domains in the open tabs.<p>I actually think this is quite a poor choice of format for sessions like mine. Perhaps you've noticed that my session was 142 MB uncompressed, which is not insignificant. Worse, it's on-disk size is 42 MB, and Firefox tends to write it every couple of seconds (but only as long as it changes, I hope). That's pretty bad, not only for performance (since the file must be rewritten every time you scroll, navigate to another page, or type something in a form), but can also reduce the lifespan of an SSD drive.<p>Because of this, people ended up with <a href=https://wiki.archlinux.org/title/profile-sync-daemon>workarounds</a> to keep the session on a <a href=https://en.wikipedia.org/wiki/RAM_drive>RAM drive</a>, at the cost of durability in case of a power failure or a crash.<p>I don't know the reasoning behind this design, but I suspect the vast majority of users have less than four tabs. Maybe the Firefox engineers wanted to avoid calling into SQLite while restoring the session.<hr><p>By the way, if you've ever felt anxious about your ever-growing tab list, please consider <a href=https://www.buymeacoffee.com/lnicolaq>buying me a coffee</a>.</div></div>
