@@ -14,8 +14,9 @@ feed_filenames = ["atom.xml"]
 
 theme = "hyde"
 
-[markdown]
-highlight_code = true
+[markdown.highlighting]
+theme = "nord"
+error_on_missing_language = true
 
 [extra]
 author = "Laurențiu Nicola"

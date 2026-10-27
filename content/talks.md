@@ -2,9 +2,9 @@
 title = "Talks"
 date = 2025-11-14
 template = "content-page.html"
+include_in_feeds = false
 
 [extra]
-ignore_feed = true
 ignore_index = true
 +++
  - [Terminal GIS (2026)](terminal-gis/)
