@@ -21,8 +21,8 @@ highlight_code = true
 author = "Laurențiu Nicola"
 hyde_links = [
     { url = "/", name = "Home" },
-    { url = "/content/talks/", name = "Talks" },
-    { url = "/content/blogroll/", name = "Blogroll" },
-    { url = "/content/acknowledgements/", name = "Acknowledgements" },
+    { url = "/talks/", name = "Talks" },
+    { url = "/blogroll/", name = "Blogroll" },
+    { url = "/acknowledgements/", name = "Acknowledgements" },
     { url = "https://www.buymeacoffee.com/lnicolaq", name = "Buy me a ☕" },
 ]

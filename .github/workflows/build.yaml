@@ -28,20 +28,20 @@ jobs:
       - name: Download talks
         run: |
           set -e
-          mkdir -p public/content/talks/omniopencon2025
+          mkdir -p public/talks/omniopencon2025
           curl -L https://github.com/lnicola/omniopencon2025/archive/refs/heads/master.zip -o master.zip
           unzip master.zip
-          mv omniopencon2025-master/* public/content/talks/omniopencon2025/
+          mv omniopencon2025-master/* public/talks/omniopencon2025/
           rm master.zip
           rm -r omniopencon2025-master
 
       - name: Download Terminal GIS talk
         run: |
           set -e
-          mkdir -p public/content/talks/terminal-gis
+          mkdir -p public/talks/terminal-gis
           curl -L https://github.com/lnicola/terminal-gis/archive/refs/heads/master.zip -o master.zip
           unzip master.zip
-          mv terminal-gis-master/* public/content/talks/terminal-gis/
+          mv terminal-gis-master/* public/talks/terminal-gis/
           rm master.zip
           rm -r terminal-gis-master
 

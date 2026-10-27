@@ -1,0 +1,5 @@
+/content/acknowledgements /acknowledgements/ 301
+/content/blogroll /blogroll/ 301
+/content/talks /talks/ 301
+
+/content/* /:splat 301
